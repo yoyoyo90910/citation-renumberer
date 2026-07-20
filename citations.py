@@ -17,6 +17,7 @@ Everything is deterministic format matching -- no model guessing -- because a
 wrong reference number is a real editorial error.
 """
 
+import copy
 import html
 import os
 import re
@@ -24,6 +25,7 @@ import shutil
 import zipfile
 
 import docx
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -120,6 +122,7 @@ class Analysis:
         self._sup_runs = {}     # occ_id -> [run, ...]   (rewrite targets)
         self._ref_paras = {}    # reference number -> paragraph
         self._ref_heading_el = None
+        self._auto_exemplar = None  # a Word auto-numbered list paragraph to clone
 
     def _add_occurrence(self, numbers, location, context, raw):
         self._occ_seq += 1
@@ -169,8 +172,15 @@ def _process_paragraph(para, analysis, location):
 # Reference-list parsing
 # --------------------------------------------------------------------------
 
-_REF_HEADING_RE = re.compile(r"^\s*(references|reference list|bibliography)\s*$", re.I)
-_REF_LEADING_NUM_RE = re.compile(r"^\s*(\d+)[.)\]]?\s+(.*\S.*)$", re.S)
+_REF_HEADING_RE = re.compile(
+    r"^\s*(?:\d+\.?\s*)?(references|reference list|bibliography|works cited)\s*:?\s*$", re.I)
+_REF_LEADING_NUM_RE = re.compile(r"^\s*(\d+)[.)\]]\s+(.*\S.*)$", re.S)
+
+
+def _is_list_item(para):
+    """True if the paragraph is part of a Word automatic numbered list."""
+    ppr = para._p.find(qn("w:pPr"))
+    return ppr is not None and ppr.find(qn("w:numPr")) is not None
 
 
 def _parse_references(paragraphs, analysis):
@@ -183,20 +193,35 @@ def _parse_references(paragraphs, analysis):
     refs = []
     if start is None:
         return refs
+
+    auto_seq = 0
     for p in paragraphs[start:]:
         text = (p.text or "").strip()
-        if not text:
-            continue
-        if p.style and p.style.name and p.style.name.lower().startswith("heading") \
-                and not _REF_LEADING_NUM_RE.match(text):
-            break
+        is_list = _is_list_item(p)
         m = _REF_LEADING_NUM_RE.match(text)
-        if m:
+
+        if is_list:
+            # Word auto-numbers these; the visible number is the list position.
+            auto_seq += 1
+            body = re.sub(r"^\s*\d+[.)\]]\s+", "", text)  # strip any typed number too
+            refs.append({"number": auto_seq, "text": body, "cited_by": [], "auto": True})
+            analysis._ref_paras[auto_seq] = p
+            if analysis._auto_exemplar is None:
+                analysis._auto_exemplar = p
+        elif m:
             num = int(m.group(1))
-            refs.append({"number": num, "text": m.group(2).strip(), "cited_by": []})
+            auto_seq = num
+            refs.append({"number": num, "text": m.group(2).strip(),
+                         "cited_by": [], "auto": False})
             analysis._ref_paras[num] = p
-        elif refs:
+        elif not text:
+            continue
+        elif refs and not (p.style and p.style.name
+                           and p.style.name.lower().startswith("heading")):
+            # a wrapped continuation line of the previous reference
             refs[-1]["text"] += " " + text
+        else:
+            break  # left the reference list
     return refs
 
 
@@ -351,6 +376,25 @@ def compute_auto_order(analysis):
     return order
 
 
+def _clone_auto_ref(exemplar, text):
+    """Build a new list paragraph that inherits the exemplar's numbering + style.
+
+    Returns a detached <w:p> element ready to be positioned in the body. Because
+    it shares the list definition, Word renumbers the whole list automatically.
+    """
+    new_p = copy.deepcopy(exemplar._p)
+    for child in list(new_p):
+        if child.tag in (qn("w:r"), qn("w:hyperlink")):
+            new_p.remove(child)
+    run = OxmlElement("w:r")
+    t = OxmlElement("w:t")
+    t.set(qn("xml:space"), "preserve")
+    t.text = text
+    run.append(t)
+    new_p.append(run)
+    return new_p
+
+
 def _set_ref_number(paragraph, new_num):
     m = re.match(r"\s*(\d+)", paragraph.text)
     if not m:
@@ -405,13 +449,18 @@ def apply_renumber(source_path, order, out_path):
                             "removed from the text." % ", ".join(map(str, dropped)))
 
     # 2. Rewrite + reorder + insert/delete the reference list.
+    auto_map = {r["number"]: r.get("auto") for r in analysis.references}
     anchor = analysis._ref_heading_el
     new_els = []
     for pos, it in enumerate(order, start=1):
         if it.get("orig") is not None:
             para = analysis._ref_paras[it["orig"]]
-            _set_ref_number(para, pos)
+            if not auto_map.get(it["orig"]):
+                _set_ref_number(para, pos)  # auto lists renumber themselves on reorder
             new_els.append(para._p)
+        elif analysis._auto_exemplar is not None:
+            # insert into a Word auto-numbered list: clone the list formatting
+            new_els.append(_clone_auto_ref(analysis._auto_exemplar, it.get("text", "").strip()))
         else:
             para = document.add_paragraph()
             run = para.add_run("%d. " % pos)
