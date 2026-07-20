@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# runtime working folders -- never commit user documents
+uploads/
+exports/
+
+# editor / OS
+.claude/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Citation Renumberer</title>
+<style>
+  :root {
+    --bg:#eef1f6; --panel:#ffffff; --ink:#111a24; --muted:#5b6b7b; --faint:#8a97a5;
+    --line:#e4e9f0; --line-2:#d3dae4;
+    --accent:#3a5bd9; --accent-ink:#2543b0; --accent-bg:#eaf0fe;
+    --super:#2c6fd6; --super-bg:#e8f1fd;
+    --paren:#7b46cf; --paren-bg:#f0e9fc;
+    --ok:#0f7a53; --ok-bg:#e4f5ee;
+    --warn:#a4550b; --warn-bg:#fbeeda;
+    --new:#0f7a53; --new-bg:#dcf2e8;
+    --del:#c23b2b; --del-bg:#fbe7e3;
+    --hi:#ffe28a; --hi-line:#d9a400;
+    --shadow:0 1px 2px rgba(16,26,36,.05), 0 4px 16px rgba(16,26,36,.06);
+    --shadow-sm:0 1px 2px rgba(16,26,36,.06);
+    --radius:14px;
+  }
+  * { box-sizing:border-box; }
+  html { scrollbar-gutter:stable; }
+  body { margin:0; font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+         background:var(--bg); color:var(--ink); font-size:15px; -webkit-font-smoothing:antialiased; }
+  ::selection { background:#cddafc; }
+  .doc::-webkit-scrollbar, .refs::-webkit-scrollbar { width:10px; }
+  .doc::-webkit-scrollbar-thumb, .refs::-webkit-scrollbar-thumb { background:#d7deea; border-radius:8px; border:2px solid var(--panel); }
+
+  /* header */
+  header { background:var(--panel); border-bottom:1px solid var(--line); padding:12px 24px;
+           display:flex; align-items:center; gap:14px; position:sticky; top:0; z-index:20; flex-wrap:wrap; }
+  .mark { width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,#3a5bd9,#6d43cf);
+          display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700;
+          font-size:15px; box-shadow:var(--shadow-sm); flex:none; }
+  .mark sup { font-size:9px; }
+  .title h1 { font-size:16px; font-weight:650; margin:0; letter-spacing:-.01em; }
+  .title p { font-size:12px; color:var(--faint); margin:1px 0 0; }
+  .file { display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--muted);
+          background:var(--bg); border:1px solid var(--line); border-radius:20px; padding:5px 12px; max-width:340px; }
+  .file .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); flex:none; }
+  .file span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-left:auto; }
+  .chip { font-size:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px;
+          padding:4px 10px; color:var(--muted); box-shadow:var(--shadow-sm); }
+  .chip b { color:var(--ink); font-weight:650; }
+  .actions { display:flex; gap:8px; }
+
+  button, label.btn { font:inherit; font-size:13.5px; cursor:pointer; border:1px solid var(--line-2);
+          background:var(--panel); border-radius:9px; padding:8px 14px; color:var(--ink);
+          transition:all .13s ease; box-shadow:var(--shadow-sm); display:inline-flex; align-items:center; gap:7px; }
+  button:hover, label.btn:hover { border-color:#b4bfce; transform:translateY(-1px); }
+  button:active, label.btn:active { transform:translateY(0); }
+  .btn-primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .btn-primary:hover { background:#2f4ecb; }
+  .btn-go { background:var(--new); color:#fff; border-color:var(--new); font-weight:600; }
+  .btn-go:hover { background:#0c6544; }
+  button svg, label.btn svg { width:15px; height:15px; }
+
+  .wrap { max-width:1360px; margin:0 auto; }
+
+  #banner { margin:18px 24px 0; padding:11px 16px; border-radius:12px; font-size:14px;
+            display:flex; gap:18px; flex-wrap:wrap; align-items:center; box-shadow:var(--shadow-sm); }
+  #banner.ok { background:var(--ok-bg); color:var(--ok); }
+  #banner.warn { background:var(--warn-bg); color:var(--warn); }
+  #banner b { font-weight:650; }
+
+  .subhead { margin:14px 24px 0; display:flex; gap:20px; align-items:center; flex-wrap:wrap;
+             font-size:12.5px; color:var(--muted); }
+  .legend { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  .swatch { display:inline-block; width:11px; height:11px; border-radius:4px; vertical-align:-1px; margin-right:6px; }
+
+  .toolbar { margin:14px 24px 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+             background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+             padding:12px 14px; box-shadow:var(--shadow); }
+  .toolbar .sp { flex:1; }
+  .toolbar .status { font-size:13px; color:var(--muted); margin-right:2px; }
+  .toolbar .status.dirty { color:var(--accent-ink); font-weight:600; }
+
+  #changelog { margin:14px 24px 0; background:var(--panel); border:1px solid var(--line);
+               border-radius:var(--radius); padding:13px 16px; box-shadow:var(--shadow); }
+  #changelog h3 { margin:0 0 9px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--faint); font-weight:650; }
+  .cl-chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .cl-chip { font-family:ui-monospace,"SF Mono",Consolas,monospace; font-size:12px; background:var(--accent-bg);
+             color:var(--accent-ink); border:1px solid #d3e0fb; border-radius:7px; padding:3px 9px; }
+  .cl-warn { color:var(--warn); margin-top:10px; font-size:13px; line-height:1.5; }
+
+  main { display:grid; grid-template-columns:1.35fr 1fr; gap:18px; padding:18px 24px 48px; align-items:start; }
+  @media (max-width:920px){ main{ grid-template-columns:1fr; } }
+  .col { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+         overflow:hidden; box-shadow:var(--shadow); }
+  .col > h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--faint);
+              margin:0; padding:14px 18px; border-bottom:1px solid var(--line); font-weight:650;
+              display:flex; align-items:center; gap:8px; }
+  .col > h2 .note { text-transform:none; letter-spacing:0; font-weight:400; color:var(--faint); margin-left:auto; font-size:12px; }
+
+  .doc { padding:10px 22px 22px; max-height:72vh; overflow-y:auto; }
+  .doc p { line-height:2; margin:13px 0; color:#1e2a36; }
+  .doc p.legend-para { color:#3a4655; font-style:italic; font-size:14px; border-left:3px solid var(--paren);
+            padding:2px 0 2px 12px; background:linear-gradient(90deg,var(--paren-bg),transparent); border-radius:0 8px 8px 0; }
+  .doc p.footnote-para { font-size:13px; color:#4a5765; border-top:1px dashed var(--line-2); padding-top:12px; }
+  .doc p.footnote-para::before { content:"Footnote"; color:#fff; background:var(--faint); font-weight:600;
+            font-size:10px; text-transform:uppercase; letter-spacing:.04em; padding:2px 7px; border-radius:6px; margin-right:8px; }
+  .doc table { border-collapse:separate; border-spacing:0; width:100%; margin:14px 0; font-size:14px;
+            border:1px solid var(--line-2); border-radius:10px; overflow:hidden; }
+  .doc td { border-bottom:1px solid var(--line); border-right:1px solid var(--line); padding:8px 11px; }
+  .doc tr:first-child td { background:#f7f9fc; font-weight:600; color:#33414f; }
+  .doc tr:last-child td { border-bottom:none; }
+  .doc td:last-child { border-right:none; }
+
+  .cite { border-radius:5px; padding:1px 4px; cursor:pointer; font-weight:650; transition:all .15s ease; }
+  .cite[data-style="superscript"] { background:var(--super-bg); color:var(--super); }
+  .cite[data-style="parenthetical"] { background:var(--paren-bg); color:var(--paren); }
+  .cite.changed { box-shadow:0 0 0 1.5px var(--new); }
+  .cite.flash { animation:flash .5s ease; }
+  @keyframes flash { 0%{ background:var(--new-bg);} 100%{} }
+  .cite.hot { box-shadow:0 0 0 2px var(--hi-line); background:var(--hi); color:#4a3600; }
+  .cite.gone { background:var(--del-bg); color:var(--del); text-decoration:line-through; }
+  .cite-maybe { color:var(--faint); text-decoration:underline dotted; }
+
+  .refs { padding:8px 10px; max-height:72vh; overflow-y:auto; }
+  .ref { display:flex; gap:10px; padding:9px 10px; border-radius:11px; align-items:flex-start;
+         border:1px solid transparent; transition:background .12s, border-color .12s; }
+  .ref:hover { background:#f7f9fc; }
+  .ref.dragging { opacity:.35; }
+  .ref.dragover { border-color:var(--accent); background:var(--accent-bg); }
+  .grip { cursor:grab; color:#b7c1cf; font-size:15px; line-height:1.6; padding-top:2px; letter-spacing:-3px; user-select:none; }
+  .grip:active { cursor:grabbing; }
+  .badge { flex:none; min-width:30px; height:30px; padding:0 8px; border-radius:9px; background:var(--accent-bg);
+           color:var(--accent-ink); font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; }
+  .ref.isnew .badge { background:var(--new-bg); color:var(--new); }
+  .ref.changed-row .badge { background:#fff3d6; color:#8a5a00; }
+  .badge .from { color:var(--faint); font-weight:500; font-size:11px; text-decoration:line-through; margin-right:3px; }
+  .ref .body { font-size:13.5px; color:#33414f; line-height:1.5; flex:1; }
+  .ref .meta { font-size:11px; color:var(--faint); margin-top:3px; display:flex; align-items:center; gap:6px; }
+  .ref.uncited-now .meta { color:var(--warn); }
+  .tag-new { font-size:10px; background:var(--new-bg); color:var(--new); border-radius:5px; padding:1px 6px; font-weight:600; }
+  .ref.hot { background:var(--hi); }
+  .ref .tools { display:flex; align-items:center; gap:2px; opacity:0; transition:opacity .12s; }
+  .ref:hover .tools { opacity:1; }
+  .ref .tools button { padding:3px 6px; font-size:11px; line-height:1; box-shadow:none; border-color:transparent; background:transparent; }
+  .ref .tools button:hover { background:#eef2f8; transform:none; }
+  .ref .x { color:#b7c1cf; }
+  .ref .x:hover { color:var(--del)!important; }
+
+  .empty { padding:70px 20px; text-align:center; color:var(--faint); font-size:14px; }
+  footer { text-align:center; color:var(--faint); font-size:12px; padding:0 24px 30px; }
+  #toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px);
+           background:var(--ink); color:#fff; padding:11px 18px; border-radius:11px; font-size:13.5px;
+           box-shadow:0 8px 30px rgba(0,0,0,.25); opacity:0; pointer-events:none; transition:all .25s ease; z-index:50; }
+  #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="mark">C<sup>n</sup></div>
+  <div class="title"><h1>Citation Renumberer</h1><p>Detect, link and renumber references</p></div>
+  <span class="file" id="filewrap"><span class="dot"></span><span id="filename">&mdash;</span></span>
+  <div class="chips" id="chips"></div>
+  <div class="actions">
+    <label class="btn btn-primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+      Import .docx<input type="file" id="fileInput" accept=".docx" hidden></label>
+    <button id="sampleBtn">Load demo</button>
+  </div>
+</header>
+
+<div id="banner" class="ok" hidden></div>
+
+<div class="subhead">
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--super-bg);border:1px solid var(--super)"></span>Superscript citation (body, tables, legends, footnotes)</span>
+    <span><span class="swatch" style="background:var(--new-bg);border:1px solid var(--new)"></span>Renumbered</span>
+  </div>
+</div>
+
+<div class="toolbar">
+  <button id="addBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add reference</button>
+  <button id="autoBtn" title="Renumber by the order citations first appear in the text (Vancouver)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h13M3 12h9M3 18h13M17 8l4-4-4-4M21 4H10"/></svg>Auto-renumber by text order</button>
+  <button id="resetBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.36 2.64L3 8"/><path d="M3 3v5h5"/></svg>Reset</button>
+  <span class="sp"></span>
+  <span class="status" id="status">No changes yet</span>
+  <button class="btn-go" id="exportBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12m0 0l4-4m-4 4l-4-4M4 20h16"/></svg>Export renumbered .docx</button>
+</div>
+
+<div id="changelog" hidden>
+  <h3>Change log</h3>
+  <div class="cl-chips" id="clChips"></div>
+  <div class="cl-warn" id="clWarn"></div>
+</div>
+
+<main>
+  <section class="col">
+    <h2>Article <span class="note">live preview</span></h2>
+    <div class="doc" id="doc"><div class="empty">Loading&hellip;</div></div>
+  </section>
+  <section class="col">
+    <h2>Reference list <span class="note">drag to reorder</span></h2>
+    <div class="refs" id="refs"></div>
+  </section>
+</main>
+
+<footer>Runs on your machine or a private host &middot; your original file is never modified.</footer>
+</div>
+<div id="toast"></div>
+
+<script>
+const $ = (s,r=document)=>r.querySelector(s);
+let DATA=null, originalRefs=[], workingRefs=[];
+
+function formatCitation(nums, comma, dash){
+  nums=[...new Set(nums)].sort((a,b)=>a-b);
+  if(!nums.length) return '';
+  const g=[]; let i=0;
+  while(i<nums.length){ let j=i;
+    while(j+1<nums.length && nums[j+1]===nums[j]+1) j++;
+    if(j-i>=2) g.push(nums[i]+dash+nums[j]); else for(let k=i;k<=j;k++) g.push(''+nums[k]);
+    i=j+1; }
+  return g.join(comma);
+}
+function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),3200); }
+
+function renderCounts(c){
+  const chips=[['references',c.references],['citations',c.citations],['body',c.body],
+               ['table',c.table],['legend',c.legend],['footnote',c.footnote]];
+  $('#chips').innerHTML=chips.filter(([k,v])=>v>0||k==='references'||k==='citations')
+    .map(([k,v])=>`<span class="chip"><b>${v}</b> ${k}</span>`).join('');
+}
+function renderBanner(issues){
+  const b=$('#banner'); const o=issues.orphan_citations||[], u=issues.uncited_references||[];
+  b.hidden=false;
+  if(!o.length&&!u.length){ b.className='ok'; b.innerHTML='&#10003;&nbsp; Every citation links to a reference and every reference is cited.'; return; }
+  b.className='warn'; const p=[];
+  if(o.length) p.push(`<span><b>Citations with no matching reference:</b> ${o.join(', ')}</span>`);
+  if(u.length) p.push(`<span><b>References never cited:</b> ${u.join(', ')}</span>`);
+  b.innerHTML=p.join('');
+}
+function renderDoc(blocks){
+  const doc=$('#doc');
+  if(!blocks.length){ doc.innerHTML='<div class="empty">No body text found.</div>'; return; }
+  doc.innerHTML=blocks.map(bl=>{
+    if(bl.type==='para') return `<p>${bl.html}</p>`;
+    if(bl.type==='legend') return `<p class="legend-para">${bl.html}</p>`;
+    if(bl.type==='footnote') return `<p class="footnote-para">${bl.html}</p>`;
+    if(bl.type==='table'){ const rows=bl.rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join(''); return `<table>${rows}</table>`; }
+    return '';
+  }).join('');
+  document.querySelectorAll('.cite').forEach(c=>{ c.dataset.orig=c.dataset.nums; });
+}
+
+function buildMapping(){
+  const map={};
+  workingRefs.forEach((r,i)=>{ if(r.orig!=null) map[r.orig]=i+1; });
+  const present=new Set(workingRefs.filter(r=>r.orig!=null).map(r=>r.orig));
+  const deleted=new Set(originalRefs.filter(r=>!present.has(r.orig)).map(r=>r.orig));
+  return {map,deleted};
+}
+
+function renderRefs(){
+  const el=$('#refs');
+  el.innerHTML=workingRefs.map((r,i)=>{
+    const newn=i+1, isNew=r.orig==null, changed=!isNew && r.orig!==newn;
+    const badge = isNew ? `${newn}` : (changed?`<span class="from">${r.orig}</span>${newn}`:`${newn}`);
+    const uncited = isNew || r.cited===0;
+    return `<div class="ref ${isNew?'isnew':''} ${changed?'changed-row':''} ${uncited?'uncited-now':''}" draggable="true" data-idx="${i}" data-num="${r.orig==null?'':r.orig}">
+      <span class="grip" title="Drag to reorder">&#9776;</span>
+      <span class="badge">${badge}</span>
+      <span style="flex:1"><div class="body">${escapeHtml(r.text)}</div>
+        <div class="meta">${isNew?'<span class="tag-new">new</span> add its citation in Word':(r.cited?('cited '+r.cited+'&times;'):'not cited')}</div></span>
+      <span class="tools">
+        <button data-up="${i}" title="Move up">&uarr;</button>
+        <button data-down="${i}" title="Move down">&darr;</button>
+        <button class="x" data-del="${i}" title="Delete">&times;</button>
+      </span>
+    </div>`;
+  }).join('');
+  wireRefEvents();
+  updatePreview();
+}
+
+function updatePreview(){
+  const {map,deleted}=buildMapping();
+  document.querySelectorAll('.cite').forEach(c=>{
+    const orig=(c.dataset.orig||'').split(',').filter(Boolean).map(Number);
+    const style=c.dataset.style;
+    const kept=orig.filter(n=>map[n]).map(n=>map[n]);
+    const dropped=orig.filter(n=>deleted.has(n));
+    const changed=orig.some(n=>map[n]&&map[n]!==n)||dropped.length;
+    c.classList.toggle('changed',!!changed && kept.length>0);
+    c.classList.toggle('gone',kept.length===0);
+    let txt;
+    if(style==='superscript'){ txt=formatCitation(kept,',','–'); c.innerHTML='<sup>'+(txt||'&#9888;')+'</sup>'; }
+    else { txt=formatCitation(kept,', ','–'); c.innerHTML=(txt?('('+txt+')'):'&#9888;'); }
+    c.dataset.nums=kept.join(',');
+  });
+  const cl=[]; workingRefs.forEach((r,i)=>{ if(r.orig!=null && r.orig!==i+1) cl.push([r.orig,i+1]); });
+  const warns=[]; const newCount=workingRefs.filter(r=>r.orig==null).length;
+  if(deleted.size) warns.push(`Deleted reference(s): ${[...deleted].sort((a,b)=>a-b).join(', ')} &ndash; citations to them are struck through and will be removed.`);
+  if(newCount) warns.push(`${newCount} new reference(s) added &ndash; remember to add their in-text citation in Word.`);
+  const box=$('#changelog');
+  if(cl.length||warns.length){
+    box.hidden=false;
+    $('#clChips').innerHTML = cl.length? cl.map(([o,n])=>`<span class="cl-chip">${o} &rarr; ${n}</span>`).join('') : '<span style="color:var(--faint);font-size:13px">No numbers change with this order.</span>';
+    $('#clWarn').innerHTML=warns.join('<br>');
+  } else box.hidden=true;
+  const dirty=cl.length||newCount||deleted.size;
+  const st=$('#status'); st.classList.toggle('dirty',!!dirty);
+  st.textContent = dirty? `${cl.length} number(s) change`+(newCount?`, ${newCount} added`:'')+(deleted.size?`, ${deleted.size} deleted`:'') : 'No changes yet';
+}
+
+function move(i,to){ if(to<0||to>=workingRefs.length) return; const [m]=workingRefs.splice(i,1); workingRefs.splice(to,0,m); renderRefs(); }
+function del(i){ workingRefs.splice(i,1); renderRefs(); }
+function addRef(){ const text=prompt('Paste the full text of the new reference:');
+  if(text&&text.trim()){ workingRefs.push({orig:null,text:text.trim(),cited:0}); renderRefs(); $('#refs').scrollTop=$('#refs').scrollHeight; } }
+function autoOrder(){
+  const seen=new Set(), order=[];
+  DATA.occurrences.forEach(o=>o.numbers.forEach(n=>{ if(!seen.has(n)&&originalRefs.some(r=>r.orig===n)){ seen.add(n); order.push(n);} }));
+  const byNum={}; originalRefs.forEach(r=>byNum[r.orig]=r);
+  const seq=[]; order.forEach(n=>seq.push(byNum[n]));
+  originalRefs.forEach(r=>{ if(!seen.has(r.orig)) seq.push(r); });
+  workingRefs.filter(r=>r.orig==null).forEach(r=>seq.push(r));
+  workingRefs=seq.map(r=>({...r})); renderRefs(); toast('Renumbered by order of first appearance');
+}
+function reset(){ workingRefs=originalRefs.map(r=>({...r})); renderRefs(); }
+
+let dragIdx=null;
+function wireRefEvents(){
+  const rows=[...document.querySelectorAll('.ref')];
+  rows.forEach(row=>{
+    const i=+row.dataset.idx;
+    row.addEventListener('dragstart',e=>{ dragIdx=i; row.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
+    row.addEventListener('dragend',()=>{ row.classList.remove('dragging'); rows.forEach(r=>r.classList.remove('dragover')); });
+    row.addEventListener('dragover',e=>{ e.preventDefault(); row.classList.add('dragover'); });
+    row.addEventListener('dragleave',()=>row.classList.remove('dragover'));
+    row.addEventListener('drop',e=>{ e.preventDefault(); if(dragIdx==null||dragIdx===i){dragIdx=null;return;}
+      const [m]=workingRefs.splice(dragIdx,1); workingRefs.splice(i,0,m); dragIdx=null; renderRefs(); });
+    row.addEventListener('click',e=>{ if(e.target.closest('button,.x,.grip')) return;
+      const num=row.dataset.num; clearHot(); row.classList.add('hot'); let first=null;
+      document.querySelectorAll('.cite').forEach(c=>{ if((c.dataset.orig||'').split(',').includes(num)){ c.classList.add('hot'); first=first||c; } });
+      if(first) first.scrollIntoView({behavior:'smooth',block:'center'}); });
+  });
+  document.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>move(+b.dataset.up,+b.dataset.up-1));
+  document.querySelectorAll('[data-down]').forEach(b=>b.onclick=()=>move(+b.dataset.down,+b.dataset.down+1));
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>del(+b.dataset.del));
+  document.querySelectorAll('.cite').forEach(c=>c.onclick=()=>{
+    const nums=(c.dataset.orig||'').split(',').filter(Boolean); clearHot(); c.classList.add('hot'); let first=null;
+    nums.forEach(n=>{ const ref=[...document.querySelectorAll('.ref')].find(r=>r.dataset.num===n); if(ref){ref.classList.add('hot'); first=first||ref;} });
+    if(first) first.scrollIntoView({behavior:'smooth',block:'center'});
+  });
+}
+function clearHot(){ document.querySelectorAll('.hot').forEach(e=>e.classList.remove('hot')); }
+
+function exportDoc(){
+  const order=workingRefs.map(r=> r.orig!=null? {orig:r.orig} : {orig:null,text:r.text});
+  $('#status').textContent='Exporting…';
+  fetch('/api/renumber',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({order, token:DATA.token, filename:DATA.filename})})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){ $('#status').textContent='Error: '+d.error; toast(d.error); return; }
+      window.location=d.download;
+      $('#status').textContent=`Exported ✓ (${d.change_log.length} numbers changed)`;
+      toast('Renumbered .docx downloaded'+(d.warnings&&d.warnings.length?' — check the change log notes':''));
+    }).catch(()=>{ $('#status').textContent='Export failed'; });
+}
+
+function render(data){
+  DATA=data;
+  if(data.empty){ $('#doc').innerHTML='<div class="empty">Import a .docx to begin.</div>'; return; }
+  $('#filename').textContent=data.filename;
+  renderCounts(data.counts);
+  renderBanner(data.issues);
+  renderDoc(data.blocks);
+  originalRefs=data.references.map(r=>({orig:r.number,text:r.text,cited:r.cited_by.length}));
+  workingRefs=originalRefs.map(r=>({...r}));
+  renderRefs();
+}
+
+function load(){ fetch('/api/analysis').then(r=>r.json()).then(render); }
+$('#fileInput').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return;
+  $('#doc').innerHTML='<div class="empty">Analysing…</div>';
+  const fd=new FormData(); fd.append('file',f);
+  fetch('/api/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+    if(d.error){ $('#doc').innerHTML=`<div class="empty">${d.error}</div>`; return; }
+    render(d); toast('Imported '+d.filename); }); });
+$('#sampleBtn').onclick=load;
+$('#addBtn').onclick=addRef; $('#autoBtn').onclick=autoOrder; $('#resetBtn').onclick=reset; $('#exportBtn').onclick=exportDoc;
+load();
+</script>
+</body>
+</html>
