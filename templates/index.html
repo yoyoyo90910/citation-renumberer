@@ -389,5 +389,16 @@ $('#sampleBtn').onclick=load;
 $('#addBtn').onclick=addRef; $('#autoBtn').onclick=autoOrder; $('#resetBtn').onclick=reset; $('#exportBtn').onclick=exportDoc;
 load();
 </script>
+
+<!-- Ko-fi support button -->
+<script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
+<script>
+  kofiWidgetOverlay.draw('jannetip', {
+    'type': 'floating-chat',
+    'floating-chat.donateButton.text': 'Support me',
+    'floating-chat.donateButton.background-color': '#323842',
+    'floating-chat.donateButton.text-color': '#fff'
+  });
+</script>
 </body>
 </html>
