@@ -3,48 +3,43 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Citation Renumberer</title>
+<title>Citation Tools</title>
 <style>
   :root {
-    --bg:#eef1f6; --panel:#ffffff; --ink:#111a24; --muted:#5b6b7b; --faint:#8a97a5;
+    --bg:#eef1f6; --panel:#fff; --ink:#111a24; --muted:#5b6b7b; --faint:#8a97a5;
     --line:#e4e9f0; --line-2:#d3dae4;
     --accent:#3a5bd9; --accent-ink:#2543b0; --accent-bg:#eaf0fe;
-    --super:#2c6fd6; --super-bg:#e8f1fd;
-    --paren:#7b46cf; --paren-bg:#f0e9fc;
-    --ok:#0f7a53; --ok-bg:#e4f5ee;
-    --warn:#a4550b; --warn-bg:#fbeeda;
-    --new:#0f7a53; --new-bg:#dcf2e8;
-    --del:#c23b2b; --del-bg:#fbe7e3;
+    --super:#2c6fd6; --super-bg:#e8f1fd; --paren:#7b46cf; --paren-bg:#f0e9fc;
+    --ok:#0f7a53; --ok-bg:#e4f5ee; --new:#0f7a53; --new-bg:#dcf2e8;
+    --warn:#a4550b; --warn-bg:#fbeeda; --warn-line:#e8c98d;
+    --del:#c23b2b; --del-bg:#fbe7e3; --del-line:#eeb7ae;
     --hi:#ffe28a; --hi-line:#d9a400;
-    --shadow:0 1px 2px rgba(16,26,36,.05), 0 4px 16px rgba(16,26,36,.06);
-    --shadow-sm:0 1px 2px rgba(16,26,36,.06);
-    --radius:14px;
+    --shadow:0 1px 2px rgba(16,26,36,.05),0 4px 16px rgba(16,26,36,.06);
+    --shadow-sm:0 1px 2px rgba(16,26,36,.06); --radius:14px;
   }
   * { box-sizing:border-box; }
   html { scrollbar-gutter:stable; }
   body { margin:0; font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
          background:var(--bg); color:var(--ink); font-size:15px; -webkit-font-smoothing:antialiased; }
   ::selection { background:#cddafc; }
-  .doc::-webkit-scrollbar, .refs::-webkit-scrollbar { width:10px; }
-  .doc::-webkit-scrollbar-thumb, .refs::-webkit-scrollbar-thumb { background:#d7deea; border-radius:8px; border:2px solid var(--panel); }
+  .scroll::-webkit-scrollbar { width:10px; }
+  .scroll::-webkit-scrollbar-thumb { background:#d7deea; border-radius:8px; border:2px solid var(--panel); }
 
-  /* header */
   header { background:var(--panel); border-bottom:1px solid var(--line); padding:12px 24px;
            display:flex; align-items:center; gap:14px; position:sticky; top:0; z-index:20; flex-wrap:wrap; }
   .mark { width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,#3a5bd9,#6d43cf);
-          display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700;
-          font-size:15px; box-shadow:var(--shadow-sm); flex:none; }
-  .mark sup { font-size:9px; }
+          display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:15px; flex:none; box-shadow:var(--shadow-sm); }
   .title h1 { font-size:16px; font-weight:650; margin:0; letter-spacing:-.01em; }
   .title p { font-size:12px; color:var(--faint); margin:1px 0 0; }
+  .segwrap { display:inline-flex; border:1px solid var(--line-2); border-radius:10px; overflow:hidden; box-shadow:var(--shadow-sm); margin-left:6px; }
+  .segwrap button { border:none; border-radius:0; box-shadow:none; background:var(--panel); padding:8px 15px; font-weight:500; }
+  .segwrap button:hover { transform:none; background:#f2f5fa; }
+  .segwrap button.on { background:var(--accent); color:#fff; }
+  .segwrap button + button { border-left:1px solid var(--line-2); }
   .file { display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--muted);
-          background:var(--bg); border:1px solid var(--line); border-radius:20px; padding:5px 12px; max-width:340px; }
+          background:var(--bg); border:1px solid var(--line); border-radius:20px; padding:5px 12px; max-width:280px; margin-left:auto; }
   .file .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); flex:none; }
   .file span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-left:auto; }
-  .chip { font-size:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px;
-          padding:4px 10px; color:var(--muted); box-shadow:var(--shadow-sm); }
-  .chip b { color:var(--ink); font-weight:650; }
   .actions { display:flex; gap:8px; }
 
   button, label.btn { font:inherit; font-size:13.5px; cursor:pointer; border:1px solid var(--line-2);
@@ -58,112 +53,111 @@
   .btn-go:hover { background:#0c6544; }
   button svg, label.btn svg { width:15px; height:15px; }
 
-  .wrap { max-width:1360px; margin:0 auto; }
-
-  #banner { margin:18px 24px 0; padding:11px 16px; border-radius:12px; font-size:14px;
-            display:flex; gap:18px; flex-wrap:wrap; align-items:center; box-shadow:var(--shadow-sm); }
-  #banner.ok { background:var(--ok-bg); color:var(--ok); }
-  #banner.warn { background:var(--warn-bg); color:var(--warn); }
-  #banner b { font-weight:650; }
-
-  .subhead { margin:14px 24px 0; display:flex; gap:16px; align-items:center; flex-wrap:wrap;
-             font-size:12.5px; color:var(--muted); }
-  .style-pick { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); font-weight:500; }
-  .style-pick select { font:inherit; font-size:13px; padding:6px 10px; border-radius:8px;
-             border:1px solid var(--line-2); background:var(--panel); color:var(--ink); cursor:pointer;
-             box-shadow:var(--shadow-sm); }
-  .style-note { font-size:12px; color:var(--faint); }
-  .style-note b { color:var(--ok); font-weight:600; }
-  .legend { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-left:auto; }
-  .swatch { display:inline-block; width:11px; height:11px; border-radius:4px; vertical-align:-1px; margin-right:6px; }
-
-  .toolbar { margin:14px 24px 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;
-             background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
-             padding:12px 14px; box-shadow:var(--shadow); }
-  .toolbar .sp { flex:1; }
-  .toolbar .status { font-size:13px; color:var(--muted); margin-right:2px; }
-  .toolbar .status.dirty { color:var(--accent-ink); font-weight:600; }
-
-  #changelog { margin:14px 24px 0; background:var(--panel); border:1px solid var(--line);
-               border-radius:var(--radius); padding:13px 16px; box-shadow:var(--shadow); }
-  #changelog h3 { margin:0 0 9px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--faint); font-weight:650; }
-  .cl-chips { display:flex; gap:6px; flex-wrap:wrap; }
-  .cl-chip { font-family:ui-monospace,"SF Mono",Consolas,monospace; font-size:12px; background:var(--accent-bg);
-             color:var(--accent-ink); border:1px solid #d3e0fb; border-radius:7px; padding:3px 9px; }
-  .cl-warn { color:var(--warn); margin-top:10px; font-size:13px; line-height:1.5; }
-
-  main { display:grid; grid-template-columns:1.35fr 1fr; gap:18px; padding:18px 24px 48px; align-items:start; }
-  @media (max-width:920px){ main{ grid-template-columns:1fr; } }
-  .col { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
-         overflow:hidden; box-shadow:var(--shadow); }
-  .col > h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--faint);
-              margin:0; padding:14px 18px; border-bottom:1px solid var(--line); font-weight:650;
-              display:flex; align-items:center; gap:8px; }
-  .col > h2 .note { text-transform:none; letter-spacing:0; font-weight:400; color:var(--faint); margin-left:auto; font-size:12px; }
-
-  .doc { padding:10px 22px 22px; max-height:72vh; overflow-y:auto; }
-  .doc p { line-height:2; margin:13px 0; color:#1e2a36; }
-  .doc p.legend-para { color:#3a4655; font-style:italic; font-size:14px; border-left:3px solid var(--paren);
-            padding:2px 0 2px 12px; background:linear-gradient(90deg,var(--paren-bg),transparent); border-radius:0 8px 8px 0; }
-  .doc p.footnote-para { font-size:13px; color:#4a5765; border-top:1px dashed var(--line-2); padding-top:12px; }
-  .doc p.footnote-para::before { content:"Footnote"; color:#fff; background:var(--faint); font-weight:600;
-            font-size:10px; text-transform:uppercase; letter-spacing:.04em; padding:2px 7px; border-radius:6px; margin-right:8px; }
-  .doc table { border-collapse:separate; border-spacing:0; width:100%; margin:14px 0; font-size:14px;
-            border:1px solid var(--line-2); border-radius:10px; overflow:hidden; }
-  .doc td { border-bottom:1px solid var(--line); border-right:1px solid var(--line); padding:8px 11px; }
-  .doc tr:first-child td { background:#f7f9fc; font-weight:600; color:#33414f; }
-  .doc tr:last-child td { border-bottom:none; }
-  .doc td:last-child { border-right:none; }
-
-  .cite { border-radius:5px; padding:1px 4px; cursor:pointer; font-weight:650; transition:all .15s ease;
-          background:var(--super-bg); color:var(--super); }
-  .cite.changed { box-shadow:0 0 0 1.5px var(--new); }
-  .cite.flash { animation:flash .5s ease; }
-  @keyframes flash { 0%{ background:var(--new-bg);} 100%{} }
-  .cite.hot { box-shadow:0 0 0 2px var(--hi-line); background:var(--hi); color:#4a3600; }
-  .cite.gone { background:var(--del-bg); color:var(--del); text-decoration:line-through; }
-  .cite-maybe { color:var(--faint); text-decoration:underline dotted; }
-
-  .refs { padding:8px 10px; max-height:72vh; overflow-y:auto; }
-  .ref { display:flex; gap:10px; padding:9px 10px; border-radius:11px; align-items:flex-start;
-         border:1px solid transparent; transition:background .12s, border-color .12s; }
-  .ref:hover { background:#f7f9fc; }
-  .ref.dragging { opacity:.35; }
-  .ref.dragover { border-color:var(--accent); background:var(--accent-bg); }
-  .grip { cursor:grab; color:#b7c1cf; font-size:15px; line-height:1.6; padding-top:2px; letter-spacing:-3px; user-select:none; }
-  .grip:active { cursor:grabbing; }
-  .badge { flex:none; min-width:30px; height:30px; padding:0 8px; border-radius:9px; background:var(--accent-bg);
-           color:var(--accent-ink); font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; }
-  .ref.isnew .badge { background:var(--new-bg); color:var(--new); }
-  .ref.changed-row .badge { background:#fff3d6; color:#8a5a00; }
-  .badge .from { color:var(--faint); font-weight:500; font-size:11px; text-decoration:line-through; margin-right:3px; }
-  .ref .body { font-size:13.5px; color:#33414f; line-height:1.5; flex:1; }
-  .ref .meta { font-size:11px; color:var(--faint); margin-top:3px; display:flex; align-items:center; gap:6px; }
-  .ref.uncited-now .meta { color:var(--warn); }
-  .tag-new { font-size:10px; background:var(--new-bg); color:var(--new); border-radius:5px; padding:1px 6px; font-weight:600; }
-  .ref.hot { background:var(--hi); }
-  .ref .tools { display:flex; align-items:center; gap:2px; opacity:0; transition:opacity .12s; }
-  .ref:hover .tools { opacity:1; }
-  .ref .tools button { padding:3px 6px; font-size:11px; line-height:1; box-shadow:none; border-color:transparent; background:transparent; }
-  .ref .tools button:hover { background:#eef2f8; transform:none; }
-  .ref .x { color:#b7c1cf; }
-  .ref .x:hover { color:var(--del)!important; }
-
-  .empty { padding:70px 20px; text-align:center; color:var(--faint); font-size:14px; }
+  .empty { padding:64px 20px; text-align:center; color:var(--faint); font-size:14px; }
   footer { text-align:center; color:var(--faint); font-size:12px; padding:0 24px 30px; }
-  #toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px);
-           background:var(--ink); color:#fff; padding:11px 18px; border-radius:11px; font-size:13.5px;
-           box-shadow:0 8px 30px rgba(0,0,0,.25); opacity:0; pointer-events:none; transition:all .25s ease; z-index:50; }
+  #toast { position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--ink);
+           color:#fff; padding:11px 18px; border-radius:11px; font-size:13.5px; box-shadow:0 8px 30px rgba(0,0,0,.25);
+           opacity:0; pointer-events:none; transition:all .25s ease; z-index:50; }
   #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+  .rowmargin { margin:14px 24px 0; }
+  .maingrid { display:grid; grid-template-columns:1.35fr 1fr; gap:18px; padding:18px 24px 40px; align-items:start; }
+  @media (max-width:940px){ .maingrid{ grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); }
+  .card > h2 { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--faint); margin:0;
+               padding:14px 18px; border-bottom:1px solid var(--line); font-weight:650; display:flex; align-items:center; gap:8px; }
+  .card > h2 .note { text-transform:none; letter-spacing:0; font-weight:400; color:var(--faint); margin-left:auto; font-size:12px; }
+  .doc { padding:10px 22px 22px; max-height:70vh; overflow-y:auto; }
+  .doc p { line-height:2; margin:13px 0; color:#1e2a36; }
+  .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:var(--panel);
+             border:1px solid var(--line); border-radius:var(--radius); padding:12px 14px; box-shadow:var(--shadow); }
+  .toolbar .sp { flex:1; }
+  .toolbar .status { font-size:13px; color:var(--muted); }
+  .toolbar .status.dirty { color:var(--accent-ink); font-weight:600; }
+  .cite { border-radius:5px; padding:1px 4px; cursor:pointer; font-weight:650; transition:all .15s ease; }
+  .cite.hot { box-shadow:0 0 0 2px var(--hi-line); background:var(--hi); color:#4a3600; }
+
+  /* ---------- Renumber mode ---------- */
+  #viewNum .banner { margin:14px 24px 0; padding:11px 16px; border-radius:12px; font-size:14px; display:flex; gap:18px; flex-wrap:wrap; align-items:center; box-shadow:var(--shadow-sm); }
+  #viewNum .banner.ok { background:var(--ok-bg); color:var(--ok); } #viewNum .banner.warn { background:var(--warn-bg); color:var(--warn); }
+  #viewNum .banner b { font-weight:650; }
+  #viewNum .subhead { margin:14px 24px 0; display:flex; gap:16px; align-items:center; flex-wrap:wrap; font-size:12.5px; color:var(--muted); }
+  #viewNum .style-pick { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); font-weight:500; }
+  #viewNum .style-pick select { font:inherit; font-size:13px; padding:6px 10px; border-radius:8px; border:1px solid var(--line-2); background:var(--panel); color:var(--ink); cursor:pointer; box-shadow:var(--shadow-sm); }
+  #viewNum .style-note { font-size:12px; color:var(--faint); } #viewNum .style-note b { color:var(--ok); font-weight:600; }
+  #viewNum .legend { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-left:auto; }
+  #viewNum .swatch { display:inline-block; width:11px; height:11px; border-radius:4px; vertical-align:-1px; margin-right:6px; }
+  #viewNum .numchips { display:flex; gap:6px; flex-wrap:wrap; margin:12px 24px 0; }
+  #viewNum .nchip { font-size:12px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:4px 10px; color:var(--muted); box-shadow:var(--shadow-sm); }
+  #viewNum .nchip b { color:var(--ink); font-weight:650; }
+  #viewNum .toolbar { margin:14px 24px 0; }
+  #viewNum .changelog { margin:14px 24px 0; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:13px 16px; box-shadow:var(--shadow); }
+  #viewNum .changelog h3 { margin:0 0 9px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--faint); font-weight:650; }
+  #viewNum .cl-chips { display:flex; gap:6px; flex-wrap:wrap; }
+  #viewNum .cl-chip { font-family:ui-monospace,Consolas,monospace; font-size:12px; background:var(--accent-bg); color:var(--accent-ink); border:1px solid #d3e0fb; border-radius:7px; padding:3px 9px; }
+  #viewNum .cl-warn { color:var(--warn); margin-top:10px; font-size:13px; line-height:1.5; }
+  #viewNum .doc p.legend-para { color:#3a4655; font-style:italic; font-size:14px; border-left:3px solid var(--paren); padding:2px 0 2px 12px; background:linear-gradient(90deg,var(--paren-bg),transparent); border-radius:0 8px 8px 0; }
+  #viewNum .doc p.footnote-para { font-size:13px; color:#4a5765; border-top:1px dashed var(--line-2); padding-top:12px; }
+  #viewNum .doc p.footnote-para::before { content:"Footnote"; color:#fff; background:var(--faint); font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:.04em; padding:2px 7px; border-radius:6px; margin-right:8px; }
+  #viewNum .doc table { border-collapse:separate; border-spacing:0; width:100%; margin:14px 0; font-size:14px; border:1px solid var(--line-2); border-radius:10px; overflow:hidden; }
+  #viewNum .doc td { border-bottom:1px solid var(--line); border-right:1px solid var(--line); padding:8px 11px; }
+  #viewNum .doc tr:first-child td { background:#f7f9fc; font-weight:600; color:#33414f; }
+  #viewNum .doc tr:last-child td { border-bottom:none; } #viewNum .doc td:last-child { border-right:none; }
+  #viewNum .cite { background:var(--super-bg); color:var(--super); }
+  #viewNum .cite.changed { box-shadow:0 0 0 1.5px var(--new); }
+  #viewNum .cite.gone { background:var(--del-bg); color:var(--del); text-decoration:line-through; }
+  #viewNum .refs { padding:8px 10px; max-height:70vh; overflow-y:auto; }
+  #viewNum .ref { display:flex; gap:10px; padding:9px 10px; border-radius:11px; align-items:flex-start; border:1px solid transparent; transition:background .12s,border-color .12s; }
+  #viewNum .ref:hover { background:#f7f9fc; }
+  #viewNum .ref.dragging { opacity:.35; } #viewNum .ref.dragover { border-color:var(--accent); background:var(--accent-bg); }
+  #viewNum .grip { cursor:grab; color:#b7c1cf; font-size:15px; line-height:1.6; padding-top:2px; letter-spacing:-3px; user-select:none; }
+  #viewNum .ref .badge { flex:none; min-width:30px; height:30px; padding:0 8px; border-radius:9px; background:var(--accent-bg); color:var(--accent-ink); font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; }
+  #viewNum .ref.isnew .badge { background:var(--new-bg); color:var(--new); } #viewNum .ref.changed-row .badge { background:#fff3d6; color:#8a5a00; }
+  #viewNum .ref .badge .from { color:var(--faint); font-weight:500; font-size:11px; text-decoration:line-through; margin-right:3px; }
+  #viewNum .ref .body { font-size:13.5px; color:#33414f; line-height:1.5; flex:1; }
+  #viewNum .ref .meta { font-size:11px; color:var(--faint); margin-top:3px; }
+  #viewNum .ref.uncited-now .meta { color:var(--warn); }
+  #viewNum .tag-new { font-size:10px; background:var(--new-bg); color:var(--new); border-radius:5px; padding:1px 6px; font-weight:600; }
+  #viewNum .ref.hot { background:var(--hi); }
+  #viewNum .ref .tools { display:flex; align-items:center; gap:2px; opacity:0; transition:opacity .12s; }
+  #viewNum .ref:hover .tools { opacity:1; }
+  #viewNum .ref .tools button { padding:3px 6px; font-size:11px; line-height:1; box-shadow:none; border-color:transparent; background:transparent; }
+  #viewNum .ref .tools button:hover { background:#eef2f8; transform:none; } #viewNum .ref .x:hover { color:var(--del)!important; }
+
+  /* ---------- Convert mode ---------- */
+  #viewAd .hint { font-size:12.5px; color:var(--muted); margin:14px 24px 0; line-height:1.6; }
+  #viewAd .hint code { background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:1px 5px; font-size:12px; }
+  #viewAd .chips { display:flex; gap:8px; flex-wrap:wrap; margin:12px 24px 0; }
+  #viewAd .chip { background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:7px 13px; box-shadow:var(--shadow-sm); min-width:78px; }
+  #viewAd .chip b { display:block; font-size:18px; font-weight:650; line-height:1.1; } #viewAd .chip span { font-size:11.5px; color:var(--faint); }
+  #viewAd .chip.matched b { color:var(--ok); } #viewAd .chip.review b { color:var(--warn); } #viewAd .chip.unmatched b { color:var(--del); }
+  #viewAd .toolbar { margin:12px 24px 0; } #viewAd .result { margin:12px 24px 0; }
+  #viewAd .clog { padding:14px 18px; font-size:13.5px; color:var(--muted); line-height:1.7; }
+  #viewAd .clog .refline { color:var(--ink); } #viewAd .clog .w { color:var(--warn); }
+  #viewAd .cite.pending { background:var(--warn-bg); color:var(--warn); box-shadow:inset 0 0 0 1px var(--warn-line); }
+  #viewAd .cite.done { background:var(--super-bg); color:var(--super); }
+  #viewAd .mlist { padding:8px 10px; max-height:70vh; overflow-y:auto; }
+  #viewAd .mrow { padding:10px; border-radius:11px; border:1px solid transparent; }
+  #viewAd .mrow + .mrow { margin-top:2px; } #viewAd .mrow:hover { background:#f7f9fc; }
+  #viewAd .mrow.review { background:var(--warn-bg); } #viewAd .mrow.unmatched { background:var(--del-bg); } #viewAd .mrow.hot { box-shadow:0 0 0 2px var(--hi-line); }
+  #viewAd .mrow-top { display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+  #viewAd .mcit { font-weight:600; font-size:13.5px; flex:1; } #viewAd .mcit small { color:var(--faint); font-weight:400; margin-left:5px; }
+  #viewAd .sbadge { font-size:10.5px; padding:2px 8px; border-radius:6px; font-weight:600; white-space:nowrap; }
+  #viewAd .sbadge.matched { background:var(--ok-bg); color:var(--ok); } #viewAd .sbadge.review { background:#fbe6c8; color:var(--warn); } #viewAd .sbadge.unmatched { background:var(--del-bg); color:var(--del); }
+  #viewAd .mnum { font-weight:700; color:var(--accent-ink); font-size:13px; white-space:nowrap; } #viewAd .mnum.none { color:var(--faint); font-weight:400; }
+  #viewAd select { font:inherit; font-size:12.5px; padding:6px 8px; border-radius:8px; border:1px solid var(--line-2); background:var(--panel); color:var(--ink); width:100%; cursor:pointer; }
+  #viewAd .mrow.unmatched select { border-color:var(--del-line); } #viewAd .mrow.review select { border-color:var(--warn-line); }
 </style>
 </head>
 <body>
-<div class="wrap">
 <header>
-  <div class="mark">C<sup>n</sup></div>
-  <div class="title"><h1>Citation Renumberer</h1><p>Detect, link and renumber references</p></div>
-  <span class="file" id="filewrap"><span class="dot"></span><span id="filename">&mdash;</span></span>
-  <div class="chips" id="chips"></div>
+  <div class="mark" id="mark">C<sup>n</sup></div>
+  <div class="title"><h1 id="apptitle">Citation Renumberer</h1><p id="appsub">Renumber numbered citations</p></div>
+  <div class="segwrap">
+    <button class="on" data-mode="num">Renumber</button>
+    <button data-mode="ad">Convert author-date</button>
+  </div>
+  <span class="file"><span class="dot"></span><span id="filename">&mdash;</span></span>
   <div class="actions">
     <label class="btn btn-primary">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
@@ -172,278 +166,218 @@
   </div>
 </header>
 
-<div id="banner" class="ok" hidden></div>
-
-<div class="subhead">
-  <label class="style-pick">Citation style
-    <select id="styleSelect">
-      <option value="superscript">Superscript &nbsp;¹²</option>
-      <option value="bracket">Brackets &nbsp;[12]</option>
-      <option value="paren">Parentheses &nbsp;(12)</option>
-    </select>
-  </label>
-  <span class="style-note" id="styleNote"></span>
-  <div class="legend">
-    <span><span class="swatch" style="background:var(--super-bg);border:1px solid var(--super)"></span>Citation</span>
-    <span><span class="swatch" style="background:var(--new-bg);border:1px solid var(--new)"></span>Renumbered</span>
+<!-- ===================== RENUMBER MODE ===================== -->
+<div id="viewNum">
+  <div class="banner ok" hidden></div>
+  <div class="subhead">
+    <label class="style-pick">Citation style
+      <select class="styleSelect">
+        <option value="superscript">Superscript &nbsp;¹²</option>
+        <option value="bracket">Brackets &nbsp;[12]</option>
+        <option value="paren">Parentheses &nbsp;(12)</option>
+      </select>
+    </label>
+    <span class="style-note"></span>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--super-bg);border:1px solid var(--super)"></span>Citation</span>
+      <span><span class="swatch" style="background:var(--new-bg);border:1px solid var(--new)"></span>Renumbered</span>
+    </div>
+  </div>
+  <div class="numchips"></div>
+  <div class="toolbar">
+    <button class="addBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add reference</button>
+    <button class="autoBtn" title="Renumber by order of first appearance (Vancouver)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h13M3 12h9M3 18h13M17 8l4-4-4-4M21 4H10"/></svg>Auto-renumber by text order</button>
+    <button class="resetBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.36 2.64L3 8"/><path d="M3 3v5h5"/></svg>Reset</button>
+    <span class="sp"></span>
+    <span class="status">No changes yet</span>
+    <button class="btn-go exportBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12m0 0l4-4m-4 4l-4-4M4 20h16"/></svg>Export renumbered .docx</button>
+  </div>
+  <div class="changelog" hidden><h3>Change log</h3><div class="cl-chips"></div><div class="cl-warn"></div></div>
+  <div class="maingrid">
+    <section class="card"><h2>Article <span class="note">live preview</span></h2><div class="doc scroll"><div class="empty">Loading&hellip;</div></div></section>
+    <section class="card"><h2>Reference list <span class="note">drag to reorder</span></h2><div class="refs scroll"></div></section>
   </div>
 </div>
 
-<div class="toolbar">
-  <button id="addBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Add reference</button>
-  <button id="autoBtn" title="Renumber by the order citations first appear in the text (Vancouver)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h13M3 12h9M3 18h13M17 8l4-4-4-4M21 4H10"/></svg>Auto-renumber by text order</button>
-  <button id="resetBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.36 2.64L3 8"/><path d="M3 3v5h5"/></svg>Reset</button>
-  <span class="sp"></span>
-  <span class="status" id="status">No changes yet</span>
-  <button class="btn-go" id="exportBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12m0 0l4-4m-4 4l-4-4M4 20h16"/></svg>Export renumbered .docx</button>
+<!-- ===================== CONVERT MODE ===================== -->
+<div id="viewAd" hidden>
+  <p class="hint">Turns author-date citations like <code>(Smith, 2020)</code> into numbered superscripts.
+    Correct any match on the right and watch the article update live &mdash; then convert. <span class="hintFlag"></span></p>
+  <div class="chips"></div>
+  <div class="toolbar">
+    <span class="status">Review the matches, then convert</span>
+    <span class="sp"></span>
+    <button class="btn-go convertBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12m0 0l4-4m-4 4l-4-4M4 20h16"/></svg>Convert &amp; export .docx</button>
+  </div>
+  <div class="result"></div>
+  <div class="maingrid">
+    <section class="card"><h2>Article <span class="note">live preview</span></h2><div class="doc scroll"><div class="empty">Loading&hellip;</div></div></section>
+    <section class="card"><h2>Matches <span class="note">in-text &rarr; reference</span></h2><div class="mlist scroll"></div></section>
+  </div>
 </div>
-
-<div id="changelog" hidden>
-  <h3>Change log</h3>
-  <div class="cl-chips" id="clChips"></div>
-  <div class="cl-warn" id="clWarn"></div>
-</div>
-
-<main>
-  <section class="col">
-    <h2>Article <span class="note">live preview</span></h2>
-    <div class="doc" id="doc"><div class="empty">Loading&hellip;</div></div>
-  </section>
-  <section class="col">
-    <h2>Reference list <span class="note">drag to reorder</span></h2>
-    <div class="refs" id="refs"></div>
-  </section>
-</main>
 
 <footer>Runs on your machine or a private host &middot; your original file is never modified.</footer>
-</div>
 <div id="toast"></div>
 
 <script>
-const $ = (s,r=document)=>r.querySelector(s);
-let DATA=null, originalRefs=[], workingRefs=[];
+const byId=id=>document.getElementById(id);
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function toast(m){const t=byId('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),3000);}
+function setFilename(n){ byId('filename').textContent=n||'—'; }
+function fmt(nums,comma=',',dash='–'){ nums=[...new Set(nums)].sort((a,b)=>a-b); if(!nums.length)return '';
+  const g=[]; let i=0; while(i<nums.length){let j=i; while(j+1<nums.length&&nums[j+1]===nums[j]+1)j++;
+    g.push(j-i>=2?nums[i]+dash+nums[j]:nums.slice(i,j+1).join(comma.trim()?comma:',')); i=j+1;} return g.join(comma); }
 
-function formatCitation(nums, comma, dash){
-  nums=[...new Set(nums)].sort((a,b)=>a-b);
-  if(!nums.length) return '';
-  const g=[]; let i=0;
-  while(i<nums.length){ let j=i;
-    while(j+1<nums.length && nums[j+1]===nums[j]+1) j++;
-    if(j-i>=2) g.push(nums[i]+dash+nums[j]); else for(let k=i;k<=j;k++) g.push(''+nums[k]);
-    i=j+1; }
-  return g.join(comma);
-}
-function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
-function renderCite(style, kept){
-  if(!kept.length) return '&#9888;';
-  if(style==='superscript') return '<sup>'+formatCitation(kept,',','–')+'</sup>';
-  if(style==='bracket') return '['+formatCitation(kept,',','–')+']';
-  return '('+formatCitation(kept,', ','–')+')';
-}
-function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),3200); }
+/* ===================== RENUMBER MODULE ===================== */
+const NUM=(function(){
+  const R=byId('viewNum'), Q=s=>R.querySelector(s), QA=s=>R.querySelectorAll(s);
+  let DATA=null, originalRefs=[], workingRefs=[], MANUAL=false, pending=null, dragIdx=null;
+  const LABEL={superscript:'Superscript ¹²',bracket:'Brackets [12]',paren:'Parentheses (12)'};
+  function renderCite(style,kept){ if(!kept.length) return '&#9888;';
+    if(style==='superscript') return '<sup>'+fmt(kept,',')+'</sup>';
+    if(style==='bracket') return '['+fmt(kept,',')+']'; return '('+fmt(kept,', ')+')'; }
+  function renderCounts(c){ const chips=[['references',c.references],['citations',c.citations],['body',c.body],['table',c.table],['footnote',c.footnote]];
+    Q('.numchips').innerHTML=chips.filter(([k,v])=>v>0||k==='references'||k==='citations').map(([k,v])=>`<span class="nchip"><b>${v}</b> ${k}</span>`).join(''); }
+  function renderBanner(issues){ const b=Q('.banner'),o=issues.orphan_citations||[],u=issues.uncited_references||[]; b.hidden=false;
+    if(!o.length&&!u.length){ b.className='banner ok'; b.innerHTML='&#10003;&nbsp; Every citation links to a reference and every reference is cited.'; return; }
+    b.className='banner warn'; const p=[]; if(o.length)p.push(`<span><b>Citations with no matching reference:</b> ${o.join(', ')}</span>`);
+    if(u.length)p.push(`<span><b>References never cited:</b> ${u.join(', ')}</span>`); b.innerHTML=p.join(''); }
+  function renderDoc(blocks){ const doc=Q('.doc'); if(!blocks.length){doc.innerHTML='<div class="empty">No body text found.</div>';return;}
+    doc.innerHTML=blocks.map(bl=>{ if(bl.type==='para')return `<p>${bl.html}</p>`; if(bl.type==='legend')return `<p class="legend-para">${bl.html}</p>`;
+      if(bl.type==='footnote')return `<p class="footnote-para">${bl.html}</p>`;
+      if(bl.type==='table'){const rows=bl.rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join(''); return `<table>${rows}</table>`;} return '';}).join('');
+    QA('.cite').forEach(c=>c.dataset.orig=c.dataset.nums); }
+  function buildMapping(){ const map={}; workingRefs.forEach((r,i)=>{if(r.orig!=null)map[r.orig]=i+1;});
+    const present=new Set(workingRefs.filter(r=>r.orig!=null).map(r=>r.orig));
+    const deleted=new Set(originalRefs.filter(r=>!present.has(r.orig)).map(r=>r.orig)); return {map,deleted}; }
+  function renderRefs(){ Q('.refs').innerHTML=workingRefs.map((r,i)=>{ const newn=i+1,isNew=r.orig==null,changed=!isNew&&r.orig!==newn;
+      const badge=isNew?`${newn}`:(changed?`<span class="from">${r.orig}</span>${newn}`:`${newn}`); const uncited=isNew||r.cited===0;
+      return `<div class="ref ${isNew?'isnew':''} ${changed?'changed-row':''} ${uncited?'uncited-now':''}" draggable="true" data-idx="${i}" data-num="${r.orig==null?'':r.orig}">
+        <span class="grip" title="Drag to reorder">&#9776;</span><span class="badge">${badge}</span>
+        <span style="flex:1"><div class="body">${esc(r.text)}</div><div class="meta">${isNew?'<span class="tag-new">new</span> add its citation in Word':(r.cited?('cited '+r.cited+'&times;'):'not cited')}</div></span>
+        <span class="tools"><button data-up="${i}" title="Move up">&uarr;</button><button data-down="${i}" title="Move down">&darr;</button><button class="x" data-del="${i}" title="Delete">&times;</button></span></div>`;}).join('');
+    wire(); updatePreview(); }
+  function updatePreview(){ const {map,deleted}=buildMapping();
+    QA('.cite').forEach(c=>{ const orig=(c.dataset.orig||'').split(',').filter(Boolean).map(Number); const style=c.dataset.style;
+      const kept=orig.filter(n=>map[n]).map(n=>map[n]); const dropped=orig.filter(n=>deleted.has(n));
+      c.classList.toggle('changed',(orig.some(n=>map[n]&&map[n]!==n)||dropped.length)&&kept.length>0); c.classList.toggle('gone',kept.length===0);
+      c.innerHTML=renderCite(style,kept); c.dataset.nums=kept.join(','); });
+    const cl=[]; workingRefs.forEach((r,i)=>{if(r.orig!=null&&r.orig!==i+1)cl.push([r.orig,i+1]);});
+    const warns=[]; const nc=workingRefs.filter(r=>r.orig==null).length;
+    if(deleted.size)warns.push(`Deleted reference(s): ${[...deleted].sort((a,b)=>a-b).join(', ')} &ndash; citations to them are struck through and will be removed.`);
+    if(nc)warns.push(`${nc} new reference(s) added &ndash; remember to add their in-text citation in Word.`);
+    const box=Q('.changelog'); if(cl.length||warns.length){ box.hidden=false;
+      Q('.cl-chips').innerHTML=cl.length?cl.map(([o,n])=>`<span class="cl-chip">${o} &rarr; ${n}</span>`).join(''):'<span style="color:var(--faint);font-size:13px">No numbers change with this order.</span>';
+      Q('.cl-warn').innerHTML=warns.join('<br>'); } else box.hidden=true;
+    const dirty=cl.length||nc||deleted.size; const st=Q('.status'); st.classList.toggle('dirty',!!dirty);
+    st.textContent=dirty?`${cl.length} number(s) change`+(nc?`, ${nc} added`:'')+(deleted.size?`, ${deleted.size} deleted`:''):'No changes yet'; }
+  function move(i,to){ if(to<0||to>=workingRefs.length)return; const [m]=workingRefs.splice(i,1); workingRefs.splice(to,0,m); renderRefs(); }
+  function del(i){ workingRefs.splice(i,1); renderRefs(); }
+  function addRef(){ const t=prompt('Paste the full text of the new reference:'); if(t&&t.trim()){workingRefs.push({orig:null,text:t.trim(),cited:0}); renderRefs(); Q('.refs').scrollTop=Q('.refs').scrollHeight;} }
+  function autoOrder(){ const seen=new Set(),order=[]; DATA.occurrences.forEach(o=>o.numbers.forEach(n=>{if(!seen.has(n)&&originalRefs.some(r=>r.orig===n)){seen.add(n);order.push(n);}}));
+    const by={}; originalRefs.forEach(r=>by[r.orig]=r); const seq=[]; order.forEach(n=>seq.push(by[n])); originalRefs.forEach(r=>{if(!seen.has(r.orig))seq.push(r);});
+    workingRefs.filter(r=>r.orig==null).forEach(r=>seq.push(r)); workingRefs=seq.map(r=>({...r})); renderRefs(); toast('Renumbered by order of first appearance'); }
+  function reset(){ workingRefs=originalRefs.map(r=>({...r})); renderRefs(); }
+  function clearHot(){ QA('.hot').forEach(e=>e.classList.remove('hot')); }
+  function wire(){ const rows=[...QA('.ref')]; rows.forEach(row=>{ const i=+row.dataset.idx;
+      row.addEventListener('dragstart',e=>{dragIdx=i;row.classList.add('dragging');e.dataTransfer.effectAllowed='move';});
+      row.addEventListener('dragend',()=>{row.classList.remove('dragging');rows.forEach(r=>r.classList.remove('dragover'));});
+      row.addEventListener('dragover',e=>{e.preventDefault();row.classList.add('dragover');});
+      row.addEventListener('dragleave',()=>row.classList.remove('dragover'));
+      row.addEventListener('drop',e=>{e.preventDefault(); if(dragIdx==null||dragIdx===i){dragIdx=null;return;} const [m]=workingRefs.splice(dragIdx,1); workingRefs.splice(i,0,m); dragIdx=null; renderRefs();});
+      row.addEventListener('click',e=>{ if(e.target.closest('button,.x,.grip'))return; const num=row.dataset.num; clearHot(); row.classList.add('hot'); let first=null;
+        QA('.cite').forEach(c=>{if((c.dataset.orig||'').split(',').includes(num)){c.classList.add('hot');first=first||c;}}); if(first)first.scrollIntoView({behavior:'smooth',block:'center'}); }); });
+    QA('[data-up]').forEach(b=>b.onclick=()=>move(+b.dataset.up,+b.dataset.up-1)); QA('[data-down]').forEach(b=>b.onclick=()=>move(+b.dataset.down,+b.dataset.down+1));
+    QA('[data-del]').forEach(b=>b.onclick=()=>del(+b.dataset.del));
+    QA('.cite').forEach(c=>c.onclick=()=>{ const nums=(c.dataset.orig||'').split(',').filter(Boolean); clearHot(); c.classList.add('hot'); let first=null;
+      nums.forEach(n=>{const ref=[...QA('.ref')].find(r=>r.dataset.num===n); if(ref){ref.classList.add('hot');first=first||ref;}}); if(first)first.scrollIntoView({behavior:'smooth',block:'center'}); }); }
+  function exportDoc(){ const order=workingRefs.map(r=>r.orig!=null?{orig:r.orig}:{orig:null,text:r.text}); Q('.status').textContent='Exporting…';
+    fetch('/api/num/renumber',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order,token:DATA.token,filename:DATA.filename,style:DATA.style})})
+      .then(r=>r.json()).then(d=>{ if(d.error){Q('.status').textContent='Error: '+d.error;toast(d.error);return;} window.location=d.download;
+        Q('.status').textContent=`Exported ✓ (${d.change_log.length} numbers changed)`; toast('Renumbered .docx downloaded'+(d.warnings&&d.warnings.length?' — check the change log notes':'')); }).catch(()=>Q('.status').textContent='Export failed'); }
+  function syncStyle(data){ const sel=Q('.styleSelect'),note=Q('.style-note'),c=data.style_counts||{};
+    sel.options[0].text='Superscript ¹²'+(c.superscript?` — ${c.superscript} found`:''); sel.options[1].text='Brackets [12]'+(c.bracket?` — ${c.bracket} found`:''); sel.options[2].text='Parentheses (12)'+(c.paren?` — ${c.paren} found`:'');
+    const found=data.counts?data.counts.citations:0; sel.value=data.style||'superscript';
+    note.innerHTML=(!data.style||found===0)?'No citations found in this style — pick the one your document uses':(MANUAL?('showing as <b>'+LABEL[data.style]+'</b>'):'<b>auto-detected</b> — change if wrong'); }
+  function render(data){ DATA=data; if(data.error){Q('.doc').innerHTML=`<div class="empty">${data.error}</div>`;return;}
+    setFilename(data.filename); renderCounts(data.counts); renderBanner(data.issues); renderDoc(data.blocks); syncStyle(data);
+    originalRefs=data.references.map(r=>({orig:r.number,text:r.text,cited:r.cited_by.length})); workingRefs=originalRefs.map(r=>({...r})); renderRefs(); }
+  function fetchAnalysis(token,filename,style){ let u=`/api/num/analysis?token=${encodeURIComponent(token)}`;
+    if(filename)u+='&filename='+encodeURIComponent(filename); if(style)u+='&style='+style; return fetch(u).then(r=>r.json()); }
+  function analyze(token,filename){ MANUAL=false; Q('.doc').innerHTML='<div class="empty">Analysing…</div>'; fetchAnalysis(token,filename).then(render); }
+  function restyle(style){ MANUAL=true; pending=style; Q('.doc').innerHTML='<div class="empty">Re-reading…</div>';
+    fetchAnalysis(DATA.token,DATA.filename,style).then(d=>{ if(pending!==style)return; render(d); toast('Reading as '+LABEL[style]); }); }
+  Q('.addBtn').onclick=addRef; Q('.autoBtn').onclick=autoOrder; Q('.resetBtn').onclick=reset; Q('.exportBtn').onclick=exportDoc;
+  Q('.styleSelect').addEventListener('change',e=>{ if(DATA&&!DATA.error)restyle(e.target.value); });
+  return {analyze};
+})();
 
-function renderCounts(c){
-  const chips=[['references',c.references],['citations',c.citations],['body',c.body],
-               ['table',c.table],['legend',c.legend],['footnote',c.footnote]];
-  $('#chips').innerHTML=chips.filter(([k,v])=>v>0||k==='references'||k==='citations')
-    .map(([k,v])=>`<span class="chip"><b>${v}</b> ${k}</span>`).join('');
-}
-function renderBanner(issues){
-  const b=$('#banner'); const o=issues.orphan_citations||[], u=issues.uncited_references||[];
-  b.hidden=false;
-  if(!o.length&&!u.length){ b.className='ok'; b.innerHTML='&#10003;&nbsp; Every citation links to a reference and every reference is cited.'; return; }
-  b.className='warn'; const p=[];
-  if(o.length) p.push(`<span><b>Citations with no matching reference:</b> ${o.join(', ')}</span>`);
-  if(u.length) p.push(`<span><b>References never cited:</b> ${u.join(', ')}</span>`);
-  b.innerHTML=p.join('');
-}
-function renderDoc(blocks){
-  const doc=$('#doc');
-  if(!blocks.length){ doc.innerHTML='<div class="empty">No body text found.</div>'; return; }
-  doc.innerHTML=blocks.map(bl=>{
-    if(bl.type==='para') return `<p>${bl.html}</p>`;
-    if(bl.type==='legend') return `<p class="legend-para">${bl.html}</p>`;
-    if(bl.type==='footnote') return `<p class="footnote-para">${bl.html}</p>`;
-    if(bl.type==='table'){ const rows=bl.rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join(''); return `<table>${rows}</table>`; }
-    return '';
-  }).join('');
-  document.querySelectorAll('.cite').forEach(c=>{ c.dataset.orig=c.dataset.nums; });
-}
+/* ===================== CONVERT MODULE ===================== */
+const AD=(function(){
+  const R=byId('viewAd'), Q=s=>R.querySelector(s), QA=s=>R.querySelectorAll(s);
+  let DATA=null, selected={};
+  function refLabel(r){ return `${r.surname||'?'} ${(r.years[0]||'')} — ${r.text.slice(0,52)}`; }
+  function computeNumbers(){ const numOf={}; let n=0; DATA.tokens.forEach(t=>{const ref=selected[t.key]; if(ref!==''&&ref!=null){if(!(ref in numOf))numOf[ref]=++n;}}); return numOf; }
+  function numsForKeys(keys,numOf){ const out=keys.map(k=>{const ref=selected[k]; return (ref!==''&&ref!=null)?numOf[ref]:null;}); return out.every(x=>x!=null)?out:null; }
+  function renderChips(){ const numOf=computeNumbers(); let matched=0,unmatched=0;
+    DATA.tokens.forEach(t=>{(selected[t.key]!==''&&selected[t.key]!=null)?matched++:unmatched++;}); const review=DATA.tokens.filter(t=>t.status==='review').length;
+    Q('.chips').innerHTML=`<div class="chip"><b>${DATA.summary.citations}</b><span>citations</span></div><div class="chip"><b>${DATA.summary.references}</b><span>references</span></div>
+      <div class="chip matched"><b>${matched}</b><span>matched</span></div><div class="chip review"><b>${review}</b><span>to check</span></div><div class="chip unmatched"><b>${unmatched}</b><span>unmatched</span></div>`;
+    Q('.hintFlag').innerHTML=(review+unmatched)?`<b style="color:var(--warn)">${review+unmatched} highlighted on the right need a look.</b>`:`<b style="color:var(--ok)">All matched — still worth a glance.</b>`; }
+  function renderDoc(){ const doc=Q('.doc'); if(!DATA.blocks||!DATA.blocks.length){doc.innerHTML='<div class="empty">No body text found.</div>';return;} doc.innerHTML=DATA.blocks.map(b=>`<p>${b.html}</p>`).join(''); }
+  function renderList(){ const numOf=computeNumbers(); Q('.mlist').innerHTML=DATA.tokens.map(t=>{ const sel=selected[t.key]; const nums=numsForKeys([t.key],numOf);
+      const num=nums?`<sup>${fmt(nums)}</sup>&nbsp;${fmt(nums)}`:'&mdash;'; const label=t.status==='matched'?'matched':t.status==='review'?'check':'unmatched';
+      const opts=['<option value="">— not matched —</option>'].concat(DATA.references.map(r=>`<option value="${r.id}" ${String(r.id)===String(sel)?'selected':''}>${esc(refLabel(r))}</option>`)).join('');
+      return `<div class="mrow ${t.status!=='matched'?t.status:''}" data-key="${esc(t.key)}"><div class="mrow-top"><span class="mcit">${esc(t.display)}<small>×${t.count}</small></span>
+        <span class="sbadge ${t.status}">${label}</span><span class="mnum ${nums?'':'none'}">${num}</span></div><select data-key="${esc(t.key)}">${opts}</select></div>`;}).join('');
+    QA('select').forEach(s=>s.addEventListener('change',e=>{selected[e.target.dataset.key]=e.target.value; refresh();}));
+    QA('.mrow').forEach(row=>row.addEventListener('click',e=>{ if(e.target.tagName==='SELECT'||e.target.tagName==='OPTION')return; spotlight(row.dataset.key); })); }
+  function updatePreview(){ const numOf=computeNumbers(); QA('.cite').forEach(c=>{ const keys=(c.dataset.keys||'').split(',').filter(Boolean); const nums=numsForKeys(keys,numOf);
+      if(nums){c.className='cite done';c.innerHTML='<sup>'+fmt(nums)+'</sup>';} else {c.className='cite pending';c.textContent=c.dataset.raw;} }); }
+  function refresh(){ renderChips(); renderList(); updatePreview(); updateStatus(); }
+  function updateStatus(){ const matched=Object.keys(computeNumbers()).length; const st=Q('.status'); st.classList.add('dirty'); st.textContent=`${matched} reference(s) will be numbered`; }
+  function spotlight(key){ [...QA('.hot')].forEach(e=>e.classList.remove('hot')); let first=null;
+    QA('.mrow').forEach(r=>{if(r.dataset.key===key)r.classList.add('hot');}); QA('.cite').forEach(c=>{if((c.dataset.keys||'').split(',').includes(key)){c.classList.add('hot');first=first||c;}}); if(first)first.scrollIntoView({behavior:'smooth',block:'center'}); }
+  function render(data){ DATA=data; selected={}; if(data.error){Q('.doc').innerHTML=`<div class="empty">${data.error}</div>`;return;}
+    setFilename(data.filename); data.tokens.forEach(t=>{selected[t.key]=(t.default==null?'':String(t.default));}); renderDoc(); refresh(); Q('.result').innerHTML='';
+    QA('.cite').forEach(c=>c.addEventListener('click',()=>{const k=(c.dataset.keys||'').split(',').filter(Boolean)[0]; if(k)spotlight(k);})); }
+  function convert(){ const mapping={}; DATA.tokens.forEach(t=>{mapping[t.key]=selected[t.key]===''?null:selected[t.key];}); Q('.status').textContent='Converting…';
+    fetch('/api/ad/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:DATA.token,filename:DATA.filename,mapping})})
+      .then(r=>r.json()).then(d=>{ if(d.error){Q('.status').textContent='Error: '+d.error;toast(d.error);return;} window.location=d.download; Q('.status').textContent='Exported ✓';
+        const warns=(d.warnings||[]).map(w=>`<div class="w">! ${esc(w)}</div>`).join('');
+        Q('.result').innerHTML=`<div class="card"><h2>Converted &check;</h2><div class="clog"><b>${d.converted}</b> citation(s) converted, <b>${d.left}</b> left unchanged. New numbered reference list:
+          <div style="margin-top:8px" class="refline">${d.numbered_refs.map(([n,t])=>`${n}. ${esc(t)}`).join('<br>')}</div>${warns?('<div style="margin-top:12px">'+warns+'</div>'):''}</div></div>`;
+        toast('Numbered .docx downloaded'); }).catch(()=>Q('.status').textContent='Conversion failed'); }
+  function analyze(token,filename){ Q('.doc').innerHTML='<div class="empty">Analysing…</div>'; let u=`/api/ad/analysis?token=${encodeURIComponent(token)}`; if(filename)u+='&filename='+encodeURIComponent(filename);
+    fetch(u).then(r=>r.json()).then(render); }
+  Q('.convertBtn').onclick=convert;
+  return {analyze};
+})();
 
-function buildMapping(){
-  const map={};
-  workingRefs.forEach((r,i)=>{ if(r.orig!=null) map[r.orig]=i+1; });
-  const present=new Set(workingRefs.filter(r=>r.orig!=null).map(r=>r.orig));
-  const deleted=new Set(originalRefs.filter(r=>!present.has(r.orig)).map(r=>r.orig));
-  return {map,deleted};
-}
-
-function renderRefs(){
-  const el=$('#refs');
-  el.innerHTML=workingRefs.map((r,i)=>{
-    const newn=i+1, isNew=r.orig==null, changed=!isNew && r.orig!==newn;
-    const badge = isNew ? `${newn}` : (changed?`<span class="from">${r.orig}</span>${newn}`:`${newn}`);
-    const uncited = isNew || r.cited===0;
-    return `<div class="ref ${isNew?'isnew':''} ${changed?'changed-row':''} ${uncited?'uncited-now':''}" draggable="true" data-idx="${i}" data-num="${r.orig==null?'':r.orig}">
-      <span class="grip" title="Drag to reorder">&#9776;</span>
-      <span class="badge">${badge}</span>
-      <span style="flex:1"><div class="body">${escapeHtml(r.text)}</div>
-        <div class="meta">${isNew?'<span class="tag-new">new</span> add its citation in Word':(r.cited?('cited '+r.cited+'&times;'):'not cited')}</div></span>
-      <span class="tools">
-        <button data-up="${i}" title="Move up">&uarr;</button>
-        <button data-down="${i}" title="Move down">&darr;</button>
-        <button class="x" data-del="${i}" title="Delete">&times;</button>
-      </span>
-    </div>`;
-  }).join('');
-  wireRefEvents();
-  updatePreview();
-}
-
-function updatePreview(){
-  const {map,deleted}=buildMapping();
-  document.querySelectorAll('.cite').forEach(c=>{
-    const orig=(c.dataset.orig||'').split(',').filter(Boolean).map(Number);
-    const style=c.dataset.style;
-    const kept=orig.filter(n=>map[n]).map(n=>map[n]);
-    const dropped=orig.filter(n=>deleted.has(n));
-    const changed=orig.some(n=>map[n]&&map[n]!==n)||dropped.length;
-    c.classList.toggle('changed',!!changed && kept.length>0);
-    c.classList.toggle('gone',kept.length===0);
-    c.innerHTML = renderCite(style, kept);
-    c.dataset.nums=kept.join(',');
-  });
-  const cl=[]; workingRefs.forEach((r,i)=>{ if(r.orig!=null && r.orig!==i+1) cl.push([r.orig,i+1]); });
-  const warns=[]; const newCount=workingRefs.filter(r=>r.orig==null).length;
-  if(deleted.size) warns.push(`Deleted reference(s): ${[...deleted].sort((a,b)=>a-b).join(', ')} &ndash; citations to them are struck through and will be removed.`);
-  if(newCount) warns.push(`${newCount} new reference(s) added &ndash; remember to add their in-text citation in Word.`);
-  const box=$('#changelog');
-  if(cl.length||warns.length){
-    box.hidden=false;
-    $('#clChips').innerHTML = cl.length? cl.map(([o,n])=>`<span class="cl-chip">${o} &rarr; ${n}</span>`).join('') : '<span style="color:var(--faint);font-size:13px">No numbers change with this order.</span>';
-    $('#clWarn').innerHTML=warns.join('<br>');
-  } else box.hidden=true;
-  const dirty=cl.length||newCount||deleted.size;
-  const st=$('#status'); st.classList.toggle('dirty',!!dirty);
-  st.textContent = dirty? `${cl.length} number(s) change`+(newCount?`, ${newCount} added`:'')+(deleted.size?`, ${deleted.size} deleted`:'') : 'No changes yet';
-}
-
-function move(i,to){ if(to<0||to>=workingRefs.length) return; const [m]=workingRefs.splice(i,1); workingRefs.splice(to,0,m); renderRefs(); }
-function del(i){ workingRefs.splice(i,1); renderRefs(); }
-function addRef(){ const text=prompt('Paste the full text of the new reference:');
-  if(text&&text.trim()){ workingRefs.push({orig:null,text:text.trim(),cited:0}); renderRefs(); $('#refs').scrollTop=$('#refs').scrollHeight; } }
-function autoOrder(){
-  const seen=new Set(), order=[];
-  DATA.occurrences.forEach(o=>o.numbers.forEach(n=>{ if(!seen.has(n)&&originalRefs.some(r=>r.orig===n)){ seen.add(n); order.push(n);} }));
-  const byNum={}; originalRefs.forEach(r=>byNum[r.orig]=r);
-  const seq=[]; order.forEach(n=>seq.push(byNum[n]));
-  originalRefs.forEach(r=>{ if(!seen.has(r.orig)) seq.push(r); });
-  workingRefs.filter(r=>r.orig==null).forEach(r=>seq.push(r));
-  workingRefs=seq.map(r=>({...r})); renderRefs(); toast('Renumbered by order of first appearance');
-}
-function reset(){ workingRefs=originalRefs.map(r=>({...r})); renderRefs(); }
-
-let dragIdx=null;
-function wireRefEvents(){
-  const rows=[...document.querySelectorAll('.ref')];
-  rows.forEach(row=>{
-    const i=+row.dataset.idx;
-    row.addEventListener('dragstart',e=>{ dragIdx=i; row.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
-    row.addEventListener('dragend',()=>{ row.classList.remove('dragging'); rows.forEach(r=>r.classList.remove('dragover')); });
-    row.addEventListener('dragover',e=>{ e.preventDefault(); row.classList.add('dragover'); });
-    row.addEventListener('dragleave',()=>row.classList.remove('dragover'));
-    row.addEventListener('drop',e=>{ e.preventDefault(); if(dragIdx==null||dragIdx===i){dragIdx=null;return;}
-      const [m]=workingRefs.splice(dragIdx,1); workingRefs.splice(i,0,m); dragIdx=null; renderRefs(); });
-    row.addEventListener('click',e=>{ if(e.target.closest('button,.x,.grip')) return;
-      const num=row.dataset.num; clearHot(); row.classList.add('hot'); let first=null;
-      document.querySelectorAll('.cite').forEach(c=>{ if((c.dataset.orig||'').split(',').includes(num)){ c.classList.add('hot'); first=first||c; } });
-      if(first) first.scrollIntoView({behavior:'smooth',block:'center'}); });
-  });
-  document.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>move(+b.dataset.up,+b.dataset.up-1));
-  document.querySelectorAll('[data-down]').forEach(b=>b.onclick=()=>move(+b.dataset.down,+b.dataset.down+1));
-  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>del(+b.dataset.del));
-  document.querySelectorAll('.cite').forEach(c=>c.onclick=()=>{
-    const nums=(c.dataset.orig||'').split(',').filter(Boolean); clearHot(); c.classList.add('hot'); let first=null;
-    nums.forEach(n=>{ const ref=[...document.querySelectorAll('.ref')].find(r=>r.dataset.num===n); if(ref){ref.classList.add('hot'); first=first||ref;} });
-    if(first) first.scrollIntoView({behavior:'smooth',block:'center'});
-  });
-}
-function clearHot(){ document.querySelectorAll('.hot').forEach(e=>e.classList.remove('hot')); }
-
-function exportDoc(){
-  const order=workingRefs.map(r=> r.orig!=null? {orig:r.orig} : {orig:null,text:r.text});
-  $('#status').textContent='Exporting…';
-  fetch('/api/renumber',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({order, token:DATA.token, filename:DATA.filename, style:DATA.style})})
-    .then(r=>r.json()).then(d=>{
-      if(d.error){ $('#status').textContent='Error: '+d.error; toast(d.error); return; }
-      window.location=d.download;
-      $('#status').textContent=`Exported ✓ (${d.change_log.length} numbers changed)`;
-      toast('Renumbered .docx downloaded'+(d.warnings&&d.warnings.length?' — check the change log notes':''));
-    }).catch(()=>{ $('#status').textContent='Export failed'; });
-}
-
-const STYLE_LABEL={superscript:'Superscript ¹²', bracket:'Brackets [12]', paren:'Parentheses (12)'};
-let MANUAL_STYLE=false, pendingStyle=null;
-function syncStyle(data){
-  const sel=$('#styleSelect'), note=$('#styleNote'), c=data.style_counts||{};
-  sel.options[0].text='Superscript ¹²'+(c.superscript?` — ${c.superscript} found`:'');
-  sel.options[1].text='Brackets [12]'+(c.bracket?` — ${c.bracket} found`:'');
-  sel.options[2].text='Parentheses (12)'+(c.paren?` — ${c.paren} found`:'');
-  const found = data.counts ? data.counts.citations : 0;
-  sel.value = data.style || 'superscript';
-  if(!data.style || found===0){
-    note.innerHTML='No citations found in this style — pick the one your document uses';
-  } else if(MANUAL_STYLE){
-    note.innerHTML='showing as <b>'+STYLE_LABEL[data.style]+'</b>';
-  } else {
-    note.innerHTML='<b>auto-detected</b> — change if wrong';
-  }
-}
-function restyle(style){
-  MANUAL_STYLE=true; pendingStyle=style;
-  $('#doc').innerHTML='<div class="empty">Re-reading…</div>';
-  fetch('/api/restyle',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({token:DATA.token, filename:DATA.filename, style})})
-    .then(r=>r.json()).then(d=>{ if(pendingStyle!==style) return;  // a newer switch won
-      if(d.error){toast(d.error);return;} render(d); toast('Reading as '+STYLE_LABEL[style]); });
-}
-
-function render(data){
-  DATA=data;
-  if(data.empty){ $('#doc').innerHTML='<div class="empty">Import a .docx to begin.</div>'; return; }
-  $('#filename').textContent=data.filename;
-  renderCounts(data.counts);
-  renderBanner(data.issues);
-  renderDoc(data.blocks);
-  syncStyle(data);
-  originalRefs=data.references.map(r=>({orig:r.number,text:r.text,cited:r.cited_by.length}));
-  workingRefs=originalRefs.map(r=>({...r}));
-  renderRefs();
-}
-
-function load(){ MANUAL_STYLE=false; fetch('/api/analysis').then(r=>r.json()).then(render); }
-$('#fileInput').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return;
-  MANUAL_STYLE=false;
-  $('#doc').innerHTML='<div class="empty">Analysing…</div>';
-  const fd=new FormData(); fd.append('file',f);
-  fetch('/api/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
-    if(d.error){ $('#doc').innerHTML=`<div class="empty">${d.error}</div>`; return; }
-    render(d); toast('Imported '+d.filename); }); });
-$('#sampleBtn').onclick=load;
-$('#addBtn').onclick=addRef; $('#autoBtn').onclick=autoOrder; $('#resetBtn').onclick=reset; $('#exportBtn').onclick=exportDoc;
-$('#styleSelect').addEventListener('change',e=>{ if(DATA && !DATA.empty) restyle(e.target.value); });
-load();
+/* ===================== SHELL ===================== */
+const shell={mode:'num', token:'sample', filename:null};
+function activate(){ (shell.mode==='num'?NUM:AD).analyze(shell.token, shell.filename); }
+document.querySelectorAll('.segwrap button').forEach(b=>b.onclick=()=>{
+  shell.mode=b.dataset.mode;
+  document.querySelectorAll('.segwrap button').forEach(x=>x.classList.toggle('on',x===b));
+  byId('viewNum').hidden=shell.mode!=='num'; byId('viewAd').hidden=shell.mode!=='ad';
+  byId('apptitle').textContent=shell.mode==='num'?'Citation Renumberer':'Author-Date → Numbered';
+  byId('appsub').textContent=shell.mode==='num'?'Renumber numbered citations':'Convert author-date to numbered';
+  byId('mark').innerHTML=shell.mode==='num'?'C<sup>n</sup>':'A→1';
+  activate();
+});
+byId('fileInput').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f)return; const fd=new FormData(); fd.append('file',f);
+  fetch('/api/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{ if(d.error){toast(d.error);return;}
+    shell.token=d.token; shell.filename=d.filename; toast('Imported '+d.filename); activate(); }); });
+byId('sampleBtn').onclick=()=>{ shell.token='sample'; shell.filename=null; activate(); };
+activate();
 </script>
 
-<!-- Ko-fi support button -->
 <script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
 <script>
   kofiWidgetOverlay.draw('jannetip', {
-    'type': 'floating-chat',
-    'floating-chat.donateButton.text': 'Support me',
-    'floating-chat.donateButton.background-color': '#323842',
-    'floating-chat.donateButton.text-color': '#fff'
+    'type':'floating-chat','floating-chat.donateButton.text':'Support me',
+    'floating-chat.donateButton.background-color':'#323842','floating-chat.donateButton.text-color':'#fff'
   });
 </script>
 </body>

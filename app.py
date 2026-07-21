@@ -1,13 +1,14 @@
 """
-Citation Renumberer -- local + deployable web app.
+Citation Tools -- one app, two modes you can flip between:
 
-Detect in-text citations, link them to the reference list, then reorder /
-insert / delete references and have everything renumber automatically, with a
-fresh exported .docx.
+  * Renumber  -- numbered citations (superscript / [n] / (n)); reorder, insert
+                 or delete references and renumber everything.
+  * Convert   -- turn author-date citations (Smith, 2020) into numbered
+                 superscripts, with a review-before-you-commit step.
 
-Runs locally (double-click the .bat) or on a shared host such as Render. There
-are no secrets and nothing is stored long-term: uploaded files get a random
-token, live only on disk for the session, and the original is never modified.
+Import a document once; flipping modes re-reads the same file for that mode.
+Runs locally or on a shared host. No secrets; the original file is never
+modified.
 """
 
 import os
@@ -16,32 +17,34 @@ import threading
 import uuid
 import webbrowser
 
+import docx
 from flask import Flask, jsonify, render_template, request, send_file
 
+import authordate as ad
 import citations
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(HERE, "uploads")
 EXPORT_DIR = os.path.join(HERE, "exports")
-SAMPLE = os.path.join(HERE, "samples", "sample-article.docx")
+SAMPLE_NUM = os.path.join(HERE, "samples", "sample-article.docx")
+SAMPLE_AD = os.path.join(HERE, "samples", "sample-authordate.docx")
 PORT = int(os.environ.get("PORT", "5057"))
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(EXPORT_DIR, exist_ok=True)
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024  # 40 MB is plenty for a .docx
+app.config["MAX_CONTENT_LENGTH"] = 40 * 1024 * 1024
 
 _TOKEN_RE = re.compile(r"^[a-f0-9]{32}$")
 
 
-def _resolve_source(token):
-    """Map a token to a .docx path. 'sample' -> the demo; else uploads/<token>."""
-    if token == "sample":
-        return SAMPLE if os.path.exists(SAMPLE) else None
-    if token and _TOKEN_RE.match(token):
-        path = os.path.join(UPLOAD_DIR, token + ".docx")
-        return path if os.path.exists(path) else None
+def _resolve(token, default_sample):
+    if not token or token == "sample":
+        return default_sample if os.path.exists(default_sample) else None
+    if _TOKEN_RE.match(token):
+        p = os.path.join(UPLOAD_DIR, token + ".docx")
+        return p if os.path.exists(p) else None
     return None
 
 
@@ -52,39 +55,54 @@ def _safe_base(filename):
     return os.path.splitext(name)[0] or "document"
 
 
-def to_dict(a, token):
+def _safe_style(v):
+    return v if v in citations.STYLES else None
+
+
+# --------------------------------------------------------------------------
+# Serialisers
+# --------------------------------------------------------------------------
+
+def num_dict(a, token):
     return {
-        "token": token,
-        "filename": a.filename,
-        "blocks": a.blocks,
-        "occurrences": a.occurrences,
-        "references": a.references,
-        "issues": a.issues,
-        "style": a.style,
-        "style_counts": a.style_counts,
+        "token": token, "filename": a.filename, "blocks": a.blocks,
+        "occurrences": a.occurrences, "references": a.references, "issues": a.issues,
+        "style": a.style, "style_counts": a.style_counts,
         "counts": {
-            "references": len(a.references),
-            "citations": len(a.occurrences),
+            "references": len(a.references), "citations": len(a.occurrences),
             "body": sum(1 for o in a.occurrences if o["location"] == "body"),
             "table": sum(1 for o in a.occurrences if o["location"] == "table"),
-            "legend": sum(1 for o in a.occurrences if o["location"] == "legend"),
             "footnote": sum(1 for o in a.occurrences if o["location"] == "footnote"),
         },
     }
 
 
+def ad_dict(document, filename, token):
+    refs = ad.parse_references(list(document.paragraphs))
+    occ, blocks = ad.scan(document)
+    tokens = ad.propose(refs, occ)
+    return {
+        "token": token, "filename": filename, "blocks": blocks,
+        "references": [{"id": r["id"], "surname": r["surname"],
+                        "years": sorted(r["years"]), "text": r["text"]} for r in refs],
+        "tokens": tokens,
+        "summary": {
+            "citations": sum(t["count"] for t in tokens), "distinct": len(tokens),
+            "matched": sum(1 for t in tokens if t["status"] == "matched"),
+            "review": sum(1 for t in tokens if t["status"] == "review"),
+            "unmatched": sum(1 for t in tokens if t["status"] == "unmatched"),
+            "references": len(refs),
+        },
+    }
+
+
+# --------------------------------------------------------------------------
+# Routes
+# --------------------------------------------------------------------------
+
 @app.route("/")
 def index():
     return render_template("index.html")
-
-
-@app.route("/api/analysis")
-def get_analysis():
-    """First page load -> the demo article, so there's always something to see."""
-    if not os.path.exists(SAMPLE):
-        return jsonify({"empty": True})
-    a = citations.analyze(SAMPLE, "sample-article.docx (demo)")
-    return jsonify(to_dict(a, "sample"))
 
 
 @app.route("/api/upload", methods=["POST"])
@@ -95,59 +113,82 @@ def upload():
     if not f.filename.lower().endswith(".docx"):
         return jsonify({"error": "Please choose a .docx file."}), 400
     token = uuid.uuid4().hex
-    dest = os.path.join(UPLOAD_DIR, token + ".docx")
-    f.save(dest)
+    f.save(os.path.join(UPLOAD_DIR, token + ".docx"))
+    return jsonify({"token": token, "filename": f.filename})
+
+
+# ---- Renumber mode ----
+
+@app.route("/api/num/analysis")
+def num_analysis():
+    token = request.args.get("token") or "sample"
+    src = _resolve(token, SAMPLE_NUM)
+    if src is None:
+        return jsonify({"error": "Session expired -- please re-import."}), 400
+    name = request.args.get("filename") or ("sample-article.docx (demo)"
+                                            if token == "sample" else "document.docx")
     try:
-        a = citations.analyze(dest, f.filename)
+        a = citations.analyze(src, name, style=_safe_style(request.args.get("style")))
     except Exception as exc:
         return jsonify({"error": "Could not read that document: %s" % exc}), 400
-    return jsonify(to_dict(a, token))
+    return jsonify(num_dict(a, token))
 
 
-def _safe_style(value):
-    return value if value in citations.STYLES else None
-
-
-@app.route("/api/restyle", methods=["POST"])
-def restyle():
-    """Re-analyse the same document with a citation style chosen by the user."""
-    payload = request.get_json(force=True, silent=True) or {}
-    source = _resolve_source(payload.get("token"))
-    if source is None:
-        return jsonify({"error": "Session expired -- please re-import your document."}), 400
-    style = _safe_style(payload.get("style"))
-    try:
-        a = citations.analyze(source, payload.get("filename"), style=style)
-    except Exception as exc:
-        return jsonify({"error": "Could not re-read that document: %s" % exc}), 400
-    return jsonify(to_dict(a, payload.get("token")))
-
-
-@app.route("/api/renumber", methods=["POST"])
-def renumber():
-    payload = request.get_json(force=True, silent=True) or {}
-    source = _resolve_source(payload.get("token"))
-    order = payload.get("order")
-    if source is None:
-        return jsonify({"error": "Session expired -- please re-import your document."}), 400
-    if not order:
+@app.route("/api/num/renumber", methods=["POST"])
+def num_renumber():
+    p = request.get_json(force=True, silent=True) or {}
+    src = _resolve(p.get("token"), SAMPLE_NUM)
+    if src is None:
+        return jsonify({"error": "Session expired -- please re-import."}), 400
+    if not p.get("order"):
         return jsonify({"error": "No reference order supplied."}), 400
-
-    out_name = _safe_base(payload.get("filename")) + "__renumbered.docx"
-    out_path = os.path.join(EXPORT_DIR, out_name)
+    out_name = _safe_base(p.get("filename")) + "__renumbered.docx"
     try:
-        report = citations.apply_renumber(source, order, out_path,
-                                          style=_safe_style(payload.get("style")))
+        rep = citations.apply_renumber(src, p["order"], os.path.join(EXPORT_DIR, out_name),
+                                       style=_safe_style(p.get("style")))
     except Exception as exc:
         return jsonify({"error": "Renumber failed: %s" % exc}), 400
-    return jsonify({
-        "ok": True,
-        "download": "/download/" + out_name,
-        "change_log": report["change_log"],
-        "inserted": report["inserted"],
-        "deleted": report["deleted"],
-        "warnings": report["warnings"],
-    })
+    return jsonify({"ok": True, "download": "/download/" + out_name,
+                    "change_log": rep["change_log"], "inserted": rep["inserted"],
+                    "deleted": rep["deleted"], "warnings": rep["warnings"]})
+
+
+# ---- Convert mode ----
+
+@app.route("/api/ad/analysis")
+def ad_analysis():
+    token = request.args.get("token") or "sample"
+    src = _resolve(token, SAMPLE_AD)
+    if src is None:
+        return jsonify({"error": "Session expired -- please re-import."}), 400
+    name = request.args.get("filename") or ("sample-authordate.docx (demo)"
+                                            if token == "sample" else "document.docx")
+    try:
+        return jsonify(ad_dict(docx.Document(src), name, token))
+    except Exception as exc:
+        return jsonify({"error": "Could not read that document: %s" % exc}), 400
+
+
+@app.route("/api/ad/convert", methods=["POST"])
+def ad_convert():
+    p = request.get_json(force=True, silent=True) or {}
+    src = _resolve(p.get("token"), SAMPLE_AD)
+    if src is None:
+        return jsonify({"error": "Session expired -- please re-import."}), 400
+    mapping = {k: (int(v) if (v is not None and v != "") else None)
+               for k, v in (p.get("mapping") or {}).items()}
+    document = docx.Document(src)
+    refs = ad.parse_references(list(document.paragraphs))
+    occ = ad.detect_citations(document)
+    try:
+        rep = ad.apply_with_mapping(document, refs, occ, mapping)
+    except Exception as exc:
+        return jsonify({"error": "Conversion failed: %s" % exc}), 400
+    out_name = _safe_base(p.get("filename")) + "__numbered.docx"
+    document.save(os.path.join(EXPORT_DIR, out_name))
+    return jsonify({"ok": True, "download": "/download/" + out_name,
+                    "converted": rep["converted"], "left": rep["left"],
+                    "numbered_refs": rep["numbered_refs"], "warnings": rep["warnings"]})
 
 
 @app.route("/download/<path:name>")
@@ -159,12 +200,11 @@ def download(name):
     return send_file(path, as_attachment=True, download_name=safe)
 
 
-def _open_browser():
+def _open():
     webbrowser.open("http://127.0.0.1:%d/" % PORT)
 
 
 if __name__ == "__main__":
-    print("\n  Citation Renumberer running at  http://127.0.0.1:%d/\n" % PORT)
-    print("  Close this window to stop the tool.\n")
-    threading.Timer(1.0, _open_browser).start()
+    print("\n  Citation Tools running at  http://127.0.0.1:%d/\n" % PORT)
+    threading.Timer(1.0, _open).start()
     app.run(host="127.0.0.1", port=PORT, debug=False)

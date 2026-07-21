@@ -194,5 +194,32 @@ def _inject_footnote(path):
     shutil.move(tmp, path)
 
 
+def build_authordate():
+    """A sample using author-date citations, for the Convert mode demo."""
+    out = os.path.join(OUT_DIR, "sample-authordate.docx")
+    refs = [
+        "Anders K, et al. Alpha mechanisms in disease. J Alpha. 2019. doi:10.1/a",
+        "Ip J, et al. First Ip paper on biomarkers. J Bravo. 2025. doi:10.1/b",
+        "Ip J, et al. Second Ip paper on outcomes. J Charlie. 2025. doi:10.1/c",
+        "Smith A, Jones B. Beta trial results. J Delta. 2020. doi:10.1/d",
+        "Zed Y. Gamma cohort analysis. J Echo. 2021. doi:10.1/e",
+    ]
+    d = docx.Document()
+    d.add_heading("A review of biomarkers", level=0)
+    d.add_heading("Introduction", level=1)
+    d.add_paragraph("Recent work (Smith & Jones, 2020) established the baseline for this field.")
+    d.add_paragraph("These findings were confirmed (Ip et al., 2025a) and later extended "
+                    "(Ip et al., 2025b) in follow-up cohorts.")
+    d.add_paragraph("Earlier analyses (Anders, 2019; Zed, 2021) had already hinted at the "
+                    "mechanism, and Smith & Jones (2020) remains the key reference.")
+    d.add_paragraph("A citation with no matching reference (Nobody, 1999) also appears here.")
+    d.add_heading("References", level=1)
+    for r in refs:
+        d.add_paragraph(r)
+    d.save(out)
+    print("Wrote", out)
+
+
 if __name__ == "__main__":
     build()
+    build_authordate()

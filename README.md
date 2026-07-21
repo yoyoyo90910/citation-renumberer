@@ -1,7 +1,15 @@
-# Citation Renumberer
+# Citation Tools
 
-A local tool for editorial staff to take the manual work out of renumbering
-references when clients or authors add, remove, or reorder citations.
+A local tool for editorial staff with **two modes you flip between** in the
+header:
+
+- **Renumber** — take the manual work out of renumbering references when
+  clients or authors add, remove, or reorder citations (numbered styles:
+  superscript `¹²`, brackets `[12]`, parentheses `(12)`).
+- **Convert author-date** — turn `(Smith, 2020)` style citations into numbered
+  superscripts, with a review-before-you-commit step so you approve every match.
+
+Import a document once; flipping modes re-reads the same file for that mode.
 
 ## How to run
 
