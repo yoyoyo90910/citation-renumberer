@@ -16,9 +16,13 @@ Everything runs on your own machine. Nothing is uploaded, and your original
 ## What it does
 
 1. **Import** a `.docx` article (client or non-client — same engine).
-2. **Detect** in-text citations. Citations are **superscript numbers**, and are
-   found wherever they appear — body text, tables, figure legends, and
-   footnotes. Ranges (`14–16`) and lists (`12,13`) are handled.
+2. **Detect** in-text citations. Numbered citations are supported in any of
+   three styles — superscript `¹²`, brackets `[12]`, or parentheses `(12)` —
+   found wherever they appear: body text, tables, figure legends, and
+   footnotes. Ranges (`14–16`) and lists (`12,13`) are handled. The style is
+   **auto-detected**, with a dropdown to correct it if needed. (Author–date
+   styles like Harvard/APA `(Smith, 2023)` aren't numbered, so renumbering
+   doesn't apply.)
 3. **Parse** the numbered reference list.
 4. **Link** the two: click a citation to spotlight its reference, or a
    reference to spotlight everywhere it is cited.

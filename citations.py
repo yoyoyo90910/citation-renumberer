@@ -7,14 +7,19 @@ Core engine for the Citation Renumberer.
                           in-text citation AND the reference list, then save a
                           fresh .docx. The original is never modified.
 
-Detection rule (agreed with the editorial team):
-  * Citations are ALWAYS superscript numbers. They can appear anywhere --
-    body text, tables, figure legends, and footnotes. There are no
-    parenthetical "(n)" citations.
-  * Ranges (14-16) and lists (12,13) inside a superscript are handled.
+Citations are NUMBERED references shown in one of three styles; the tool
+auto-detects which the document uses (and the caller can force one):
+  * superscript ... raised numbers          e.g.  finding.^12
+  * bracket ....... square brackets         e.g.  finding [12]
+  * paren ......... round brackets          e.g.  finding (12)
 
-Everything is deterministic format matching -- no model guessing -- because a
-wrong reference number is a real editorial error.
+They can appear anywhere -- body text, tables, figure legends, footnotes.
+Ranges (14-16) and lists (12,13) are handled. Front matter (title / authors /
+affiliations / metadata) is skipped so affiliation markers aren't mistaken for
+citations. Everything is deterministic pattern matching -- no model guessing.
+
+Author-date styles (Harvard/APA "Smith, 2023") are not numbered and therefore
+out of scope for a renumbering tool.
 """
 
 import copy
@@ -30,12 +35,18 @@ from docx.oxml.ns import qn
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
+STYLES = ("superscript", "bracket", "paren")
+
 # --------------------------------------------------------------------------
 # Number parsing / formatting
 # --------------------------------------------------------------------------
 
 _DASHES = r"\-‑‒–—−"
 _RANGE_RE = re.compile(r"^(\d+)\s*[" + _DASHES + r"]\s*(\d+)$")
+_GROUP = (r"(\d+(?:\s*[" + _DASHES + r"]\s*\d+)?"
+          r"(?:\s*[,;]\s*\d+(?:\s*[" + _DASHES + r"]\s*\d+)?)*)")
+BRACKET_RE = re.compile(r"\[\s*" + _GROUP + r"\s*\]")
+PAREN_RE = re.compile(r"\(\s*" + _GROUP + r"\s*\)")
 
 
 def expand_numbers(text):
@@ -86,8 +97,17 @@ def _seps_from_raw(raw):
     return comma, dash
 
 
+def _wrap(style, inner):
+    """Wrap a formatted number string in the style's delimiters (plain text)."""
+    if style == "bracket":
+        return "[" + inner + "]"
+    if style == "paren":
+        return "(" + inner + ")"
+    return inner
+
+
 # --------------------------------------------------------------------------
-# Run helpers
+# Run / paragraph helpers
 # --------------------------------------------------------------------------
 
 def _is_superscript(run):
@@ -105,6 +125,28 @@ def _esc(s):
     return html.escape(s, quote=False)
 
 
+def _replace_span(paragraph, start, end, new_text):
+    """Replace characters [start, end) of a paragraph's text, keeping runs."""
+    bounds, pos = [], 0
+    for r in paragraph.runs:
+        bounds.append((r, pos, pos + len(r.text)))
+        pos += len(r.text)
+    first = True
+    for r, rs, re_ in bounds:
+        if re_ <= start or rs >= end:
+            continue
+        ls, le = max(start, rs) - rs, min(end, re_) - rs
+        if first:
+            r.text = r.text[:ls] + new_text + r.text[le:]
+            first = False
+        else:
+            r.text = r.text[:ls] + r.text[le:]
+
+
+def _in_range(numbers, max_ref):
+    return bool(numbers) and (max_ref == 0 or all(1 <= x <= max_ref for x in numbers))
+
+
 # --------------------------------------------------------------------------
 # Analysis container
 # --------------------------------------------------------------------------
@@ -114,34 +156,39 @@ class Analysis:
         self.filename = filename
         self.source_path = source_path
         self.document = None
+        self.style = None
+        self.style_counts = {s: 0 for s in STYLES}
         self.blocks = []
         self.occurrences = []
         self.references = []
         self.issues = {}
         self._occ_seq = 0
-        self._sup_runs = {}     # occ_id -> [run, ...]   (rewrite targets)
-        self._ref_paras = {}    # reference number -> paragraph
+        self._max_ref = 0
+        self._sup_runs = {}       # occ_id -> [run, ...]        (superscript)
+        self._span_targets = {}   # occ_id -> (paragraph, s, e) (bracket/paren)
+        self._ref_paras = {}
         self._ref_heading_el = None
-        self._auto_exemplar = None  # a Word auto-numbered list paragraph to clone
+        self._auto_exemplar = None
 
-    def _add_occurrence(self, numbers, location, context, raw):
+    def _add_occurrence(self, numbers, location, context, raw, style):
         self._occ_seq += 1
-        occ = {"id": self._occ_seq, "numbers": numbers, "style": "superscript",
+        occ = {"id": self._occ_seq, "numbers": numbers, "style": style,
                "location": location, "context": context, "raw": raw}
         self.occurrences.append(occ)
         return occ
 
-    def _cite_html(self, raw, numbers, occ_id):
+    def _cite_html(self, raw, numbers, occ_id, style):
         nums = ",".join(str(n) for n in numbers)
-        return ('<span class="cite" data-occ="%d" data-nums="%s" data-style="superscript">'
-                '<sup>%s</sup></span>' % (occ_id, nums, _esc(raw)))
+        inner = ("<sup>%s</sup>" % _esc(raw)) if style == "superscript" else _esc(raw)
+        return ('<span class="cite" data-occ="%d" data-nums="%s" data-style="%s">'
+                "%s</span>" % (occ_id, nums, style, inner))
 
 
 # --------------------------------------------------------------------------
-# Detection: superscript in any paragraph (body / table cell / legend)
+# Per-paragraph detection
 # --------------------------------------------------------------------------
 
-def _process_paragraph(para, analysis, location):
+def _proc_superscript(para, analysis, location):
     runs = list(para.runs)
     plain = "".join(r.text for r in runs)
     parts, i, n = [], 0, len(runs)
@@ -155,9 +202,10 @@ def _process_paragraph(para, analysis, location):
                 j += 1
             numbers = expand_numbers(buf)
             if numbers:
-                occ = analysis._add_occurrence(numbers, location, plain.strip()[:160], buf)
+                occ = analysis._add_occurrence(numbers, location, plain.strip()[:160],
+                                               buf, "superscript")
                 analysis._sup_runs[occ["id"]] = group
-                parts.append(analysis._cite_html(buf, numbers, occ["id"]))
+                parts.append(analysis._cite_html(buf, numbers, occ["id"], "superscript"))
             else:
                 parts.append("<sup>%s</sup>" % _esc(buf))
             i = j
@@ -166,6 +214,81 @@ def _process_paragraph(para, analysis, location):
                          else _esc(run.text))
             i += 1
     return "".join(parts)
+
+
+def _proc_delimited(para, analysis, location, style):
+    """Bracket / paren detection over the paragraph text (records span targets)."""
+    text = para.text
+    regex = BRACKET_RE if style == "bracket" else PAREN_RE
+    out, last = [], 0
+    for m in regex.finditer(text):
+        numbers = expand_numbers(m.group(1))
+        out.append(_esc(text[last:m.start()]))
+        # brackets are unambiguous; parens must be within the reference range so
+        # a year (2024) or sample size (45) is never treated as a citation.
+        ok = numbers and (style == "bracket" or _in_range(numbers, analysis._max_ref))
+        if ok:
+            occ = analysis._add_occurrence(numbers, location, text.strip()[:160],
+                                           m.group(0), style)
+            analysis._span_targets[occ["id"]] = (para, m.start(), m.end())
+            out.append(analysis._cite_html(m.group(0), numbers, occ["id"], style))
+        else:
+            out.append('<span class="cite-maybe" title="Out of reference range '
+                       '-- not treated as a citation">%s</span>' % _esc(m.group(0)))
+        last = m.end()
+    out.append(_esc(text[last:]))
+    return "".join(out)
+
+
+def _proc(para, analysis, location):
+    if analysis.style == "superscript":
+        return _proc_superscript(para, analysis, location)
+    return _proc_delimited(para, analysis, location, analysis.style)
+
+
+# --------------------------------------------------------------------------
+# Auto-detection
+# --------------------------------------------------------------------------
+
+def _count_superscript(para):
+    runs = list(para.runs)
+    i, n, cnt = 0, len(runs), 0
+    while i < n:
+        if _is_superscript(runs[i]) and any(c.isdigit() for c in runs[i].text):
+            j, buf = i, ""
+            while j < n and _is_superscript(runs[j]):
+                buf += runs[j].text
+                j += 1
+            if expand_numbers(buf):
+                cnt += 1
+            i = j
+        else:
+            i += 1
+    return cnt
+
+
+def _unit_paragraphs(units):
+    for kind, obj in units:
+        if kind == "para":
+            yield obj
+        else:  # table
+            for row in obj.rows:
+                for cell in row.cells:
+                    for p in cell.paragraphs:
+                        yield p
+
+
+def _autodetect(units, max_ref):
+    counts = {s: 0 for s in STYLES}
+    for para in _unit_paragraphs(units):
+        counts["superscript"] += _count_superscript(para)
+        text = para.text
+        counts["bracket"] += sum(1 for m in BRACKET_RE.finditer(text)
+                                 if expand_numbers(m.group(1)))
+        counts["paren"] += sum(1 for m in PAREN_RE.finditer(text)
+                               if _in_range(expand_numbers(m.group(1)), max_ref))
+    best = max(STYLES, key=lambda s: counts[s])
+    return (best if counts[best] > 0 else None), counts
 
 
 # --------------------------------------------------------------------------
@@ -178,7 +301,6 @@ _REF_LEADING_NUM_RE = re.compile(r"^\s*(\d+)[.)\]]\s+(.*\S.*)$", re.S)
 
 
 def _is_list_item(para):
-    """True if the paragraph is part of a Word automatic numbered list."""
     ppr = para._p.find(qn("w:pPr"))
     return ppr is not None and ppr.find(qn("w:numPr")) is not None
 
@@ -193,17 +315,14 @@ def _parse_references(paragraphs, analysis):
     refs = []
     if start is None:
         return refs
-
     auto_seq = 0
     for p in paragraphs[start:]:
         text = (p.text or "").strip()
         is_list = _is_list_item(p)
         m = _REF_LEADING_NUM_RE.match(text)
-
         if is_list:
-            # Word auto-numbers these; the visible number is the list position.
             auto_seq += 1
-            body = re.sub(r"^\s*\d+[.)\]]\s+", "", text)  # strip any typed number too
+            body = re.sub(r"^\s*\d+[.)\]]\s+", "", text)
             refs.append({"number": auto_seq, "text": body, "cited_by": [], "auto": True})
             analysis._ref_paras[auto_seq] = p
             if analysis._auto_exemplar is None:
@@ -218,15 +337,32 @@ def _parse_references(paragraphs, analysis):
             continue
         elif refs and not (p.style and p.style.name
                            and p.style.name.lower().startswith("heading")):
-            # a wrapped continuation line of the previous reference
             refs[-1]["text"] += " " + text
         else:
-            break  # left the reference list
+            break
+    analysis._max_ref = max((r["number"] for r in refs), default=0)
     return refs
 
 
 # --------------------------------------------------------------------------
-# Footnotes (separate part; detected for display, rewritten via zip surgery)
+# Body-start detection (skip front matter / author affiliations)
+# --------------------------------------------------------------------------
+
+_BODY_START_RE = re.compile(
+    r"^(?:\d+\.?\s*)?(abstract|summary|meeting summary|synopsis|introduction|"
+    r"background|main text|main article|main body)\b", re.I)
+
+
+def _find_body_start(paragraphs):
+    for p in paragraphs:
+        t = (p.text or "").strip()
+        if t and len(t) <= 40 and _BODY_START_RE.match(t):
+            return p._p
+    return None
+
+
+# --------------------------------------------------------------------------
+# Footnotes
 # --------------------------------------------------------------------------
 
 def _xml_is_super(r):
@@ -241,44 +377,18 @@ def _run_text(r):
     return "".join(t.text or "" for t in r.findall(W + "t"))
 
 
-def _footnote_html(fn):
-    """Build display HTML for a footnote and yield (numbers, raw) citations."""
-    out, cites = [], []
-    for p in fn.findall(W + "p"):
-        runs = p.findall(W + "r")
-        i, n = 0, len(runs)
-        while i < n:
-            r = runs[i]
-            if _xml_is_super(r) and any(c.isdigit() for c in _run_text(r)):
-                j, buf = i, ""
-                while j < n and _xml_is_super(runs[j]):
-                    buf += _run_text(runs[j])
-                    j += 1
-                numbers = expand_numbers(buf)
-                if numbers:
-                    cites.append((numbers, buf))
-                    out.append("\x00%d\x01" % (len(cites) - 1))  # placeholder
-                else:
-                    out.append("<sup>%s</sup>" % _esc(buf))
-                i = j
-            else:
-                out.append(("<sup>%s</sup>" % _esc(_run_text(r))) if _xml_is_super(r)
-                           else _esc(_run_text(r)))
-                i += 1
-        out.append(" ")
-    return "".join(out), cites
-
-
-def _parse_footnotes(path, analysis):
+def _read_footnotes(path):
+    """Return the real footnote elements (skipping separators), or []."""
     try:
         with zipfile.ZipFile(path) as z:
             if "word/footnotes.xml" not in z.namelist():
-                return
+                return []
             xml = z.read("word/footnotes.xml")
     except Exception:
-        return
+        return []
     from lxml import etree
     root = etree.fromstring(xml)
+    out = []
     for fn in root.findall(W + "footnote"):
         if fn.get(W + "type") in ("separator", "continuationSeparator"):
             continue
@@ -287,40 +397,63 @@ def _parse_footnotes(path, analysis):
                 continue
         except ValueError:
             continue
-        raw_html, cites = _footnote_html(fn)
-        if not "".join(t.text or "" for t in fn.iter(W + "t")).strip():
-            continue
-        # replace placeholders with real citation spans (registering occurrences)
-        def sub(m):
-            numbers, buf = cites[int(m.group(1))]
-            occ = analysis._add_occurrence(numbers, "footnote", "", buf)
-            return analysis._cite_html(buf, numbers, occ["id"])
-        html_body = re.sub("\x00(\\d+)\x01", sub, raw_html)
-        analysis.blocks.append({"type": "footnote", "html": html_body})
+        out.append(fn)
+    return out
+
+
+def _footnote_block(fn, analysis):
+    style = analysis.style
+    text = "".join(t.text or "" for t in fn.iter(W + "t")).strip()
+    if not text:
+        return None
+    if style == "superscript":
+        out = []
+        for p in fn.findall(W + "p"):
+            runs = p.findall(W + "r")
+            i, n = 0, len(runs)
+            while i < n:
+                r = runs[i]
+                if _xml_is_super(r) and any(c.isdigit() for c in _run_text(r)):
+                    j, buf = i, ""
+                    while j < n and _xml_is_super(runs[j]):
+                        buf += _run_text(runs[j])
+                        j += 1
+                    numbers = expand_numbers(buf)
+                    if numbers:
+                        occ = analysis._add_occurrence(numbers, "footnote", text[:160],
+                                                       buf, "superscript")
+                        out.append(analysis._cite_html(buf, numbers, occ["id"], "superscript"))
+                    else:
+                        out.append("<sup>%s</sup>" % _esc(buf))
+                    i = j
+                else:
+                    out.append(("<sup>%s</sup>" % _esc(_run_text(r))) if _xml_is_super(r)
+                               else _esc(_run_text(r)))
+                    i += 1
+            out.append(" ")
+        return {"type": "footnote", "html": "".join(out)}
+    # bracket / paren -- regex over the footnote's plain text
+    regex = BRACKET_RE if style == "bracket" else PAREN_RE
+    out, last = [], 0
+    for m in regex.finditer(text):
+        numbers = expand_numbers(m.group(1))
+        out.append(_esc(text[last:m.start()]))
+        if numbers and (style == "bracket" or _in_range(numbers, analysis._max_ref)):
+            occ = analysis._add_occurrence(numbers, "footnote", text[:160],
+                                           m.group(0), style)
+            out.append(analysis._cite_html(m.group(0), numbers, occ["id"], style))
+        else:
+            out.append(_esc(m.group(0)))
+        last = m.end()
+    out.append(_esc(text[last:]))
+    return {"type": "footnote", "html": "".join(out)}
 
 
 # --------------------------------------------------------------------------
 # analyze()
 # --------------------------------------------------------------------------
 
-# Where the article body begins. Author names, affiliations and metadata sit
-# ABOVE this, and their superscript markers (¹²³ next to author names) must NOT
-# be mistaken for citations. Citations only start once the body/abstract does.
-_BODY_START_RE = re.compile(
-    r"^(?:\d+\.?\s*)?(abstract|summary|meeting summary|synopsis|introduction|"
-    r"background|main text|main article|main body)\b", re.I)
-
-
-def _find_body_start(paragraphs):
-    """Return the element of the first 'body start' heading, or None."""
-    for p in paragraphs:
-        t = (p.text or "").strip()
-        if t and len(t) <= 40 and _BODY_START_RE.match(t):
-            return p._p
-    return None
-
-
-def analyze(path, filename=None):
+def analyze(path, filename=None, style=None):
     document = docx.Document(path)
     analysis = Analysis(filename or os.path.basename(path), path)
     analysis.document = document
@@ -332,17 +465,15 @@ def analyze(path, filename=None):
     body = document.element.body
     para_map = {p._element: p for p in document.paragraphs}
     table_map = {t._element: t for t in document.tables}
-    in_refs = False
-
-    # Skip the front matter (title / authors / affiliations / metadata) so that
-    # affiliation superscripts are never counted as citations.
     body_start_el = _find_body_start(paragraphs)
     started = body_start_el is None
+    in_refs = False
 
+    units = []
     for child in body.iterchildren():
         if not started:
             if child is body_start_el:
-                started = True  # reached the body heading -- skip the label itself
+                started = True
             continue
         if child.tag == qn("w:p"):
             para = para_map.get(child)
@@ -353,22 +484,36 @@ def analyze(path, filename=None):
                 in_refs = True
             if in_refs or not text:
                 continue
-            analysis.blocks.append({"type": "para",
-                                    "html": _process_paragraph(para, analysis, "body")})
+            units.append(("para", para))
         elif child.tag == qn("w:tbl"):
             table = table_map.get(child)
             if table is None or in_refs:
                 continue
-            rows_html = []
-            for row in table.rows:
-                cells = []
-                for cell in row.cells:
-                    cells.append(" ".join(_process_paragraph(p, analysis, "table")
-                                          for p in cell.paragraphs))
-                rows_html.append(cells)
-            analysis.blocks.append({"type": "table", "rows": rows_html})
+            units.append(("table", table))
 
-    _parse_footnotes(path, analysis)
+    footnotes = _read_footnotes(path)
+
+    # Decide the citation style.
+    detected, counts = _autodetect(units, analysis._max_ref)
+    analysis.style_counts = counts
+    analysis.style = style or detected
+
+    if analysis.style:
+        for kind, obj in units:
+            if kind == "para":
+                analysis.blocks.append({"type": "para",
+                                        "html": _proc(obj, analysis, "body")})
+            else:
+                rows = []
+                for row in obj.rows:
+                    rows.append([" ".join(_proc(p, analysis, "table")
+                                          for p in cell.paragraphs)
+                                 for cell in row.cells])
+                analysis.blocks.append({"type": "table", "rows": rows})
+        for fn in footnotes:
+            block = _footnote_block(fn, analysis)
+            if block:
+                analysis.blocks.append(block)
 
     for occ in analysis.occurrences:
         for num in occ["numbers"]:
@@ -404,11 +549,6 @@ def compute_auto_order(analysis):
 
 
 def _clone_auto_ref(exemplar, text):
-    """Build a new list paragraph that inherits the exemplar's numbering + style.
-
-    Returns a detached <w:p> element ready to be positioned in the body. Because
-    it shares the list definition, Word renumbers the whole list automatically.
-    """
     new_p = copy.deepcopy(exemplar._p)
     for child in list(new_p):
         if child.tag in (qn("w:r"), qn("w:hyperlink")):
@@ -424,29 +564,13 @@ def _clone_auto_ref(exemplar, text):
 
 def _set_ref_number(paragraph, new_num):
     m = re.match(r"\s*(\d+)", paragraph.text)
-    if not m:
-        return
-    start, end = m.start(1), m.end(1)
-    bounds, pos = [], 0
-    for r in paragraph.runs:
-        bounds.append((r, pos, pos + len(r.text)))
-        pos += len(r.text)
-    first = True
-    for r, rs, re_ in bounds:
-        if re_ <= start or rs >= end:
-            continue
-        ls, le = max(start, rs) - rs, min(end, re_) - rs
-        r.text = r.text[:ls] + (str(new_num) if first else "") + r.text[le:]
-        first = False
+    if m:
+        _replace_span(paragraph, m.start(1), m.end(1), str(new_num))
 
 
-def apply_renumber(source_path, order, out_path):
-    """Renumber a fresh copy of the document to the given final reference order.
-
-    `order`: list of {"orig": <int>} (existing reference kept) or
-    {"orig": None, "text": "..."} (newly inserted). Missing originals = deleted.
-    """
-    analysis = analyze(source_path)
+def apply_renumber(source_path, order, out_path, style=None):
+    analysis = analyze(source_path, style=style)
+    style = analysis.style
     document = analysis.document
 
     original_numbers = [r["number"] for r in analysis.references]
@@ -460,7 +584,7 @@ def apply_renumber(source_path, order, out_path):
 
     warnings = []
 
-    # 1. Rewrite superscript citations (body + tables + legends).
+    # 1. Superscript citations -> rewrite the runs.
     for occ in analysis.occurrences:
         if occ["id"] not in analysis._sup_runs:
             continue
@@ -472,10 +596,28 @@ def apply_renumber(source_path, order, out_path):
         for r in runs[1:]:
             r.text = ""
         if dropped:
-            warnings.append("A citation referenced deleted reference(s) %s -- "
-                            "removed from the text." % ", ".join(map(str, dropped)))
+            warnings.append("A citation referenced deleted reference(s) %s -- removed."
+                            % ", ".join(map(str, dropped)))
 
-    # 2. Rewrite + reorder + insert/delete the reference list.
+    # 2. Bracket / paren citations -> span replace, right-to-left per paragraph.
+    by_para = {}
+    for occ in analysis.occurrences:
+        if occ["id"] not in analysis._span_targets:
+            continue
+        para, s, e = analysis._span_targets[occ["id"]]
+        by_para.setdefault(id(para), (para, []))[1].append((s, e, occ))
+    for para, spans in by_para.values():
+        for s, e, occ in sorted(spans, key=lambda x: x[0], reverse=True):
+            dropped = [n for n in occ["numbers"] if n in deleted]
+            kept = [mapping[n] for n in occ["numbers"] if n in mapping]
+            comma, dash = _seps_from_raw(occ["raw"])
+            new_raw = _wrap(style, format_citation(kept, comma, dash)) if kept else ""
+            _replace_span(para, s, e, new_raw)
+            if dropped:
+                warnings.append("A citation referenced deleted reference(s) %s -- removed."
+                                % ", ".join(map(str, dropped)))
+
+    # 3. Reference list -- reorder / renumber / insert / delete.
     auto_map = {r["number"]: r.get("auto") for r in analysis.references}
     anchor = analysis._ref_heading_el
     new_els = []
@@ -483,10 +625,9 @@ def apply_renumber(source_path, order, out_path):
         if it.get("orig") is not None:
             para = analysis._ref_paras[it["orig"]]
             if not auto_map.get(it["orig"]):
-                _set_ref_number(para, pos)  # auto lists renumber themselves on reorder
+                _set_ref_number(para, pos)
             new_els.append(para._p)
         elif analysis._auto_exemplar is not None:
-            # insert into a Word auto-numbered list: clone the list formatting
             new_els.append(_clone_auto_ref(analysis._auto_exemplar, it.get("text", "").strip()))
         else:
             para = document.add_paragraph()
@@ -509,8 +650,7 @@ def apply_renumber(source_path, order, out_path):
 
     document.save(out_path)
 
-    # 3. Footnotes live outside the main part -> patch the saved zip.
-    _rewrite_footnotes_zip(out_path, mapping, deleted, warnings)
+    _rewrite_footnotes_zip(out_path, mapping, deleted, warnings, style)
 
     change_log = sorted(((o, n) for o, n in mapping.items() if o != n), key=lambda x: x[0])
     inserted = [pos for pos, it in enumerate(order, start=1) if it.get("orig") is None]
@@ -529,8 +669,7 @@ def _set_xml_run_text(r, new_text):
         extra.text = ""
 
 
-def _rewrite_footnotes_zip(path, mapping, deleted, warnings):
-    """Renumber superscript citations inside word/footnotes.xml."""
+def _rewrite_footnotes_zip(path, mapping, deleted, warnings, style):
     try:
         with zipfile.ZipFile(path) as z:
             names = z.namelist()
@@ -541,37 +680,48 @@ def _rewrite_footnotes_zip(path, mapping, deleted, warnings):
         return
 
     from lxml import etree
-    root = etree.fromstring(data["word/footnotes.xml"])
-    for fn in root.findall(W + "footnote"):
-        if fn.get(W + "type") in ("separator", "continuationSeparator"):
-            continue
-        for p in fn.findall(W + "p"):
-            runs = p.findall(W + "r")
-            i, n = 0, len(runs)
-            while i < n:
-                r = runs[i]
-                if _xml_is_super(r) and any(c.isdigit() for c in _run_text(r)):
-                    j, buf, group = i, "", []
-                    while j < n and _xml_is_super(runs[j]):
-                        group.append(runs[j])
-                        buf += _run_text(runs[j])
-                        j += 1
-                    numbers = expand_numbers(buf)
-                    if numbers and any(x in mapping or x in deleted for x in numbers):
-                        comma, dash = _seps_from_raw(buf)
-                        kept = [mapping[x] for x in numbers if x in mapping]
-                        _set_xml_run_text(group[0], format_citation(kept, comma, dash))
-                        for g in group[1:]:
-                            _set_xml_run_text(g, "")
-                        if any(x in deleted for x in numbers):
-                            warnings.append("A footnote citation referenced a deleted "
-                                            "reference -- removed.")
-                    i = j
-                else:
-                    i += 1
 
-    data["word/footnotes.xml"] = etree.tostring(root, xml_declaration=True,
-                                                 encoding="UTF-8", standalone=True)
+    if style == "superscript":
+        root = etree.fromstring(data["word/footnotes.xml"])
+        for fn in root.findall(W + "footnote"):
+            if fn.get(W + "type") in ("separator", "continuationSeparator"):
+                continue
+            for p in fn.findall(W + "p"):
+                runs = p.findall(W + "r")
+                i, n = 0, len(runs)
+                while i < n:
+                    r = runs[i]
+                    if _xml_is_super(r) and any(c.isdigit() for c in _run_text(r)):
+                        j, buf, group = i, "", []
+                        while j < n and _xml_is_super(runs[j]):
+                            group.append(runs[j])
+                            buf += _run_text(runs[j])
+                            j += 1
+                        numbers = expand_numbers(buf)
+                        if numbers and any(x in mapping or x in deleted for x in numbers):
+                            comma, dash = _seps_from_raw(buf)
+                            kept = [mapping[x] for x in numbers if x in mapping]
+                            _set_xml_run_text(group[0], format_citation(kept, comma, dash))
+                            for g in group[1:]:
+                                _set_xml_run_text(g, "")
+                        i = j
+                    else:
+                        i += 1
+        data["word/footnotes.xml"] = etree.tostring(root, xml_declaration=True,
+                                                     encoding="UTF-8", standalone=True)
+    else:
+        xml = data["word/footnotes.xml"].decode("utf-8")
+        regex = BRACKET_RE if style == "bracket" else PAREN_RE
+
+        def repl(m):
+            numbers = expand_numbers(m.group(1))
+            if numbers and all(n in mapping for n in numbers):
+                comma, dash = _seps_from_raw(m.group(0))
+                return _wrap(style, format_citation([mapping[n] for n in numbers], comma, dash))
+            return m.group(0)
+
+        data["word/footnotes.xml"] = regex.sub(repl, xml).encode("utf-8")
+
     tmp = path + ".tmp"
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
         for nm, b in data.items():

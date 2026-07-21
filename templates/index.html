@@ -66,9 +66,15 @@
   #banner.warn { background:var(--warn-bg); color:var(--warn); }
   #banner b { font-weight:650; }
 
-  .subhead { margin:14px 24px 0; display:flex; gap:20px; align-items:center; flex-wrap:wrap;
+  .subhead { margin:14px 24px 0; display:flex; gap:16px; align-items:center; flex-wrap:wrap;
              font-size:12.5px; color:var(--muted); }
-  .legend { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  .style-pick { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); font-weight:500; }
+  .style-pick select { font:inherit; font-size:13px; padding:6px 10px; border-radius:8px;
+             border:1px solid var(--line-2); background:var(--panel); color:var(--ink); cursor:pointer;
+             box-shadow:var(--shadow-sm); }
+  .style-note { font-size:12px; color:var(--faint); }
+  .style-note b { color:var(--ok); font-weight:600; }
+  .legend { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-left:auto; }
   .swatch { display:inline-block; width:11px; height:11px; border-radius:4px; vertical-align:-1px; margin-right:6px; }
 
   .toolbar { margin:14px 24px 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;
@@ -109,9 +115,8 @@
   .doc tr:last-child td { border-bottom:none; }
   .doc td:last-child { border-right:none; }
 
-  .cite { border-radius:5px; padding:1px 4px; cursor:pointer; font-weight:650; transition:all .15s ease; }
-  .cite[data-style="superscript"] { background:var(--super-bg); color:var(--super); }
-  .cite[data-style="parenthetical"] { background:var(--paren-bg); color:var(--paren); }
+  .cite { border-radius:5px; padding:1px 4px; cursor:pointer; font-weight:650; transition:all .15s ease;
+          background:var(--super-bg); color:var(--super); }
   .cite.changed { box-shadow:0 0 0 1.5px var(--new); }
   .cite.flash { animation:flash .5s ease; }
   @keyframes flash { 0%{ background:var(--new-bg);} 100%{} }
@@ -170,8 +175,16 @@
 <div id="banner" class="ok" hidden></div>
 
 <div class="subhead">
+  <label class="style-pick">Citation style
+    <select id="styleSelect">
+      <option value="superscript">Superscript &nbsp;¹²</option>
+      <option value="bracket">Brackets &nbsp;[12]</option>
+      <option value="paren">Parentheses &nbsp;(12)</option>
+    </select>
+  </label>
+  <span class="style-note" id="styleNote"></span>
   <div class="legend">
-    <span><span class="swatch" style="background:var(--super-bg);border:1px solid var(--super)"></span>Superscript citation (body, tables, legends, footnotes)</span>
+    <span><span class="swatch" style="background:var(--super-bg);border:1px solid var(--super)"></span>Citation</span>
     <span><span class="swatch" style="background:var(--new-bg);border:1px solid var(--new)"></span>Renumbered</span>
   </div>
 </div>
@@ -221,6 +234,12 @@ function formatCitation(nums, comma, dash){
   return g.join(comma);
 }
 function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function renderCite(style, kept){
+  if(!kept.length) return '&#9888;';
+  if(style==='superscript') return '<sup>'+formatCitation(kept,',','–')+'</sup>';
+  if(style==='bracket') return '['+formatCitation(kept,',','–')+']';
+  return '('+formatCitation(kept,', ','–')+')';
+}
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),3200); }
 
 function renderCounts(c){
@@ -291,9 +310,7 @@ function updatePreview(){
     const changed=orig.some(n=>map[n]&&map[n]!==n)||dropped.length;
     c.classList.toggle('changed',!!changed && kept.length>0);
     c.classList.toggle('gone',kept.length===0);
-    let txt;
-    if(style==='superscript'){ txt=formatCitation(kept,',','–'); c.innerHTML='<sup>'+(txt||'&#9888;')+'</sup>'; }
-    else { txt=formatCitation(kept,', ','–'); c.innerHTML=(txt?('('+txt+')'):'&#9888;'); }
+    c.innerHTML = renderCite(style, kept);
     c.dataset.nums=kept.join(',');
   });
   const cl=[]; workingRefs.forEach((r,i)=>{ if(r.orig!=null && r.orig!==i+1) cl.push([r.orig,i+1]); });
@@ -357,13 +374,39 @@ function exportDoc(){
   const order=workingRefs.map(r=> r.orig!=null? {orig:r.orig} : {orig:null,text:r.text});
   $('#status').textContent='Exporting…';
   fetch('/api/renumber',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({order, token:DATA.token, filename:DATA.filename})})
+    body:JSON.stringify({order, token:DATA.token, filename:DATA.filename, style:DATA.style})})
     .then(r=>r.json()).then(d=>{
       if(d.error){ $('#status').textContent='Error: '+d.error; toast(d.error); return; }
       window.location=d.download;
       $('#status').textContent=`Exported ✓ (${d.change_log.length} numbers changed)`;
       toast('Renumbered .docx downloaded'+(d.warnings&&d.warnings.length?' — check the change log notes':''));
     }).catch(()=>{ $('#status').textContent='Export failed'; });
+}
+
+const STYLE_LABEL={superscript:'Superscript ¹²', bracket:'Brackets [12]', paren:'Parentheses (12)'};
+let MANUAL_STYLE=false, pendingStyle=null;
+function syncStyle(data){
+  const sel=$('#styleSelect'), note=$('#styleNote'), c=data.style_counts||{};
+  sel.options[0].text='Superscript ¹²'+(c.superscript?` — ${c.superscript} found`:'');
+  sel.options[1].text='Brackets [12]'+(c.bracket?` — ${c.bracket} found`:'');
+  sel.options[2].text='Parentheses (12)'+(c.paren?` — ${c.paren} found`:'');
+  const found = data.counts ? data.counts.citations : 0;
+  sel.value = data.style || 'superscript';
+  if(!data.style || found===0){
+    note.innerHTML='No citations found in this style — pick the one your document uses';
+  } else if(MANUAL_STYLE){
+    note.innerHTML='showing as <b>'+STYLE_LABEL[data.style]+'</b>';
+  } else {
+    note.innerHTML='<b>auto-detected</b> — change if wrong';
+  }
+}
+function restyle(style){
+  MANUAL_STYLE=true; pendingStyle=style;
+  $('#doc').innerHTML='<div class="empty">Re-reading…</div>';
+  fetch('/api/restyle',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({token:DATA.token, filename:DATA.filename, style})})
+    .then(r=>r.json()).then(d=>{ if(pendingStyle!==style) return;  // a newer switch won
+      if(d.error){toast(d.error);return;} render(d); toast('Reading as '+STYLE_LABEL[style]); });
 }
 
 function render(data){
@@ -373,13 +416,15 @@ function render(data){
   renderCounts(data.counts);
   renderBanner(data.issues);
   renderDoc(data.blocks);
+  syncStyle(data);
   originalRefs=data.references.map(r=>({orig:r.number,text:r.text,cited:r.cited_by.length}));
   workingRefs=originalRefs.map(r=>({...r}));
   renderRefs();
 }
 
-function load(){ fetch('/api/analysis').then(r=>r.json()).then(render); }
+function load(){ MANUAL_STYLE=false; fetch('/api/analysis').then(r=>r.json()).then(render); }
 $('#fileInput').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return;
+  MANUAL_STYLE=false;
   $('#doc').innerHTML='<div class="empty">Analysing…</div>';
   const fd=new FormData(); fd.append('file',f);
   fetch('/api/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
@@ -387,6 +432,7 @@ $('#fileInput').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f)
     render(d); toast('Imported '+d.filename); }); });
 $('#sampleBtn').onclick=load;
 $('#addBtn').onclick=addRef; $('#autoBtn').onclick=autoOrder; $('#resetBtn').onclick=reset; $('#exportBtn').onclick=exportDoc;
+$('#styleSelect').addEventListener('change',e=>{ if(DATA && !DATA.empty) restyle(e.target.value); });
 load();
 </script>
 

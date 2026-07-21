@@ -60,6 +60,8 @@ def to_dict(a, token):
         "occurrences": a.occurrences,
         "references": a.references,
         "issues": a.issues,
+        "style": a.style,
+        "style_counts": a.style_counts,
         "counts": {
             "references": len(a.references),
             "citations": len(a.occurrences),
@@ -102,6 +104,25 @@ def upload():
     return jsonify(to_dict(a, token))
 
 
+def _safe_style(value):
+    return value if value in citations.STYLES else None
+
+
+@app.route("/api/restyle", methods=["POST"])
+def restyle():
+    """Re-analyse the same document with a citation style chosen by the user."""
+    payload = request.get_json(force=True, silent=True) or {}
+    source = _resolve_source(payload.get("token"))
+    if source is None:
+        return jsonify({"error": "Session expired -- please re-import your document."}), 400
+    style = _safe_style(payload.get("style"))
+    try:
+        a = citations.analyze(source, payload.get("filename"), style=style)
+    except Exception as exc:
+        return jsonify({"error": "Could not re-read that document: %s" % exc}), 400
+    return jsonify(to_dict(a, payload.get("token")))
+
+
 @app.route("/api/renumber", methods=["POST"])
 def renumber():
     payload = request.get_json(force=True, silent=True) or {}
@@ -115,7 +136,8 @@ def renumber():
     out_name = _safe_base(payload.get("filename")) + "__renumbered.docx"
     out_path = os.path.join(EXPORT_DIR, out_name)
     try:
-        report = citations.apply_renumber(source, order, out_path)
+        report = citations.apply_renumber(source, order, out_path,
+                                          style=_safe_style(payload.get("style")))
     except Exception as exc:
         return jsonify({"error": "Renumber failed: %s" % exc}), 400
     return jsonify({
