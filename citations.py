@@ -303,12 +303,30 @@ def _parse_footnotes(path, analysis):
 # analyze()
 # --------------------------------------------------------------------------
 
+# Where the article body begins. Author names, affiliations and metadata sit
+# ABOVE this, and their superscript markers (¹²³ next to author names) must NOT
+# be mistaken for citations. Citations only start once the body/abstract does.
+_BODY_START_RE = re.compile(
+    r"^(?:\d+\.?\s*)?(abstract|summary|meeting summary|synopsis|introduction|"
+    r"background|main text|main article|main body)\b", re.I)
+
+
+def _find_body_start(paragraphs):
+    """Return the element of the first 'body start' heading, or None."""
+    for p in paragraphs:
+        t = (p.text or "").strip()
+        if t and len(t) <= 40 and _BODY_START_RE.match(t):
+            return p._p
+    return None
+
+
 def analyze(path, filename=None):
     document = docx.Document(path)
     analysis = Analysis(filename or os.path.basename(path), path)
     analysis.document = document
 
-    analysis.references = _parse_references(list(document.paragraphs), analysis)
+    paragraphs = list(document.paragraphs)
+    analysis.references = _parse_references(paragraphs, analysis)
     ref_numbers = {r["number"] for r in analysis.references}
 
     body = document.element.body
@@ -316,7 +334,16 @@ def analyze(path, filename=None):
     table_map = {t._element: t for t in document.tables}
     in_refs = False
 
+    # Skip the front matter (title / authors / affiliations / metadata) so that
+    # affiliation superscripts are never counted as citations.
+    body_start_el = _find_body_start(paragraphs)
+    started = body_start_el is None
+
     for child in body.iterchildren():
+        if not started:
+            if child is body_start_el:
+                started = True  # reached the body heading -- skip the label itself
+            continue
         if child.tag == qn("w:p"):
             para = para_map.get(child)
             if para is None:
