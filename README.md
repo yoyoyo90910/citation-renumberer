@@ -11,6 +11,12 @@ header:
 
 Import a document once; flipping modes re-reads the same file for that mode.
 
+**Mendeley documents** are handled automatically: if you import a file written
+with the Mendeley Cite add-in (even with an ungenerated bibliography), the tool
+reads the citation data straight from the Mendeley fields, flattens every
+citation to a numbered superscript, writes the numbered reference list, and
+opens in Renumber mode — no need to flatten in Word first.
+
 ## How to run
 
 Double-click **`Start Citation Renumberer.bat`**. The first run sets itself up

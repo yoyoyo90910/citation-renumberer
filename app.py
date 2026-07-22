@@ -22,6 +22,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 
 import authordate as ad
 import citations
+import mendeley
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(HERE, "uploads")
@@ -113,7 +114,17 @@ def upload():
     if not f.filename.lower().endswith(".docx"):
         return jsonify({"error": "Please choose a .docx file."}), 400
     token = uuid.uuid4().hex
-    f.save(os.path.join(UPLOAD_DIR, token + ".docx"))
+    dest = os.path.join(UPLOAD_DIR, token + ".docx")
+    f.save(dest)
+    # Mendeley-managed docs: flatten citations to numbered so they're readable.
+    if mendeley.is_mendeley(dest):
+        try:
+            rep = mendeley.flatten_to_numbered(dest, dest)
+            return jsonify({"token": token, "filename": f.filename,
+                            "mendeley": rep})
+        except Exception as exc:
+            return jsonify({"token": token, "filename": f.filename,
+                            "mendeley_error": str(exc)})
     return jsonify({"token": token, "filename": f.filename})
 
 
