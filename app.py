@@ -119,7 +119,7 @@ def upload():
     # Mendeley-managed docs: flatten citations to numbered so they're readable.
     if mendeley.is_mendeley(dest):
         try:
-            rep = mendeley.flatten_to_numbered(dest, dest)
+            rep = mendeley.flatten(dest, dest)
             return jsonify({"token": token, "filename": f.filename,
                             "mendeley": rep})
         except Exception as exc:

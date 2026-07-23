@@ -412,9 +412,9 @@ document.querySelectorAll('.segwrap button').forEach(b=>b.onclick=()=>{
 byId('fileInput').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f)return; const fd=new FormData(); fd.append('file',f);
   fetch('/api/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{ if(d.error){toast(d.error);return;}
     shell.token=d.token; shell.filename=d.filename;
-    if(d.mendeley){ // Mendeley file was flattened to numbered -> open Renumber mode
-      document.querySelector('.segwrap button[data-mode="num"]').click();
-      toast(`Mendeley file — flattened ${d.mendeley.citations} citations, ${d.mendeley.references} references to numbered`);
+    if(d.mendeley){ // Mendeley file flattened to author-date text -> open Convert mode
+      document.querySelector('.segwrap button[data-mode="ad"]').click();
+      toast(`Mendeley file — ${d.mendeley.citations} citations, ${d.mendeley.references} references. Review and convert.`);
       return; }
     if(d.mendeley_error){ toast('Mendeley read failed: '+d.mendeley_error); }
     else toast('Imported '+d.filename);

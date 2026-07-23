@@ -75,6 +75,9 @@ def format_citation(numbers, comma=",", dash="–"):
 # Parsing
 # --------------------------------------------------------------------------
 
+_REF_LEAD_NUM = re.compile(r"^\s*\d+[.)\]]\s+")
+
+
 def parse_references(paragraphs):
     start = None
     for i, p in enumerate(paragraphs):
@@ -84,22 +87,28 @@ def parse_references(paragraphs):
     refs = []
     if start is None:
         return refs
+    # If the list is numbered ("1. ...", "2) ..."), a new entry begins only on a
+    # leading number and unnumbered lines are continuations. Otherwise treat each
+    # non-empty paragraph as its own entry.
+    numbered = None
     for p in paragraphs[start:]:
         text = (p.text or "").strip()
         if not text:
             continue
-        yrs = _years(text)
-        if yrs or not refs:
-            refs.append({
-                "id": len(refs),
-                "surname": _surname_key(text),
-                "years": yrs,
-                "text": text,
-                "paragraph": p,
-            })
-        else:
+        lead = bool(_REF_LEAD_NUM.match(text))
+        if numbered is None:
+            numbered = lead
+        if refs and numbered and not lead:
             refs[-1]["text"] += " " + text
             refs[-1]["years"] |= _years(text)
+            continue
+        refs.append({
+            "id": len(refs),
+            "surname": _surname_key(text),
+            "years": _years(text),
+            "text": text,
+            "paragraph": p,
+        })
     return refs
 
 
