@@ -423,14 +423,15 @@ byId('sampleBtn').onclick=()=>{ shell.token='sample'; shell.filename=null; activ
 activate();
 </script>
 
-<!-- Support button: a plain link (no external script/iframe, so ad-blockers can't break it) -->
-<a href="https://ko-fi.com/jannetip" target="_blank" rel="noopener noreferrer" id="kofiBtn"
-   aria-label="Support me on Ko-fi"
-   style="position:fixed;left:18px;bottom:18px;z-index:60;display:inline-flex;align-items:center;gap:9px;
-          background:#323842;color:#fff;text-decoration:none;padding:11px 18px 11px 15px;border-radius:24px;
-          font-family:-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px;font-weight:600;
-          box-shadow:0 6px 20px rgba(16,26,36,.28);transition:transform .12s ease;"
-   onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='none'">
-  <span aria-hidden="true" style="font-size:18px;line-height:1">&#9749;</span> Support me</a>
+<!-- Ko-fi support widget -->
+<script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
+<script>
+  kofiWidgetOverlay.draw('jannetip', {
+    'type': 'floating-chat',
+    'floating-chat.donateButton.text': 'Support me',
+    'floating-chat.donateButton.background-color': '#794bc4',
+    'floating-chat.donateButton.text-color': '#fff'
+  });
+</script>
 </body>
 </html>
