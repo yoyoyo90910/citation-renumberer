@@ -4,7 +4,9 @@ services:
     runtime: python
     plan: free # stateless -- uploads/exports are transient, nothing to persist
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 2 --timeout 120 app:app
+    # Render assigns the port via $PORT -- gunicorn MUST bind it, or the service
+    # is unreachable and appears to never load.
+    startCommand: gunicorn -w 2 --timeout 120 --bind 0.0.0.0:$PORT app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.0
