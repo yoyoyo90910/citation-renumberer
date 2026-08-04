@@ -117,6 +117,9 @@
   #viewNum .ref .body { font-size:13.5px; color:#33414f; line-height:1.5; flex:1; }
   #viewNum .ref .meta { font-size:11px; color:var(--faint); margin-top:3px; }
   #viewNum .ref.uncited-now .meta { color:var(--warn); }
+  #viewNum .ref.dup { box-shadow:inset 3px 0 0 var(--warn); }
+  #viewNum .ref.dup .badge { background:var(--warn-bg); color:var(--warn); }
+  #viewNum .dupflag { color:var(--warn); font-weight:600; }
   #viewNum .tag-new { font-size:10px; background:var(--new-bg); color:var(--new); border-radius:5px; padding:1px 6px; font-weight:600; }
   #viewNum .ref.hot { background:var(--hi); }
   #viewNum .ref .tools { display:flex; align-items:center; gap:2px; opacity:0; transition:opacity .12s; }
@@ -281,10 +284,12 @@ const NUM=(function(){
     if(style==='bracket') return '['+fmt(kept,',')+']'; return '('+fmt(kept,', ')+')'; }
   function renderCounts(c){ const chips=[['references',c.references],['citations',c.citations],['body',c.body],['table',c.table],['footnote',c.footnote]];
     Q('.numchips').innerHTML=chips.filter(([k,v])=>v>0||k==='references'||k==='citations').map(([k,v])=>`<span class="nchip"><b>${v}</b> ${k}</span>`).join(''); }
-  function renderBanner(issues){ const b=Q('.banner'),o=issues.orphan_citations||[],u=issues.uncited_references||[]; b.hidden=false;
-    if(!o.length&&!u.length){ b.className='banner ok'; b.innerHTML='&#10003;&nbsp; Every citation links to a reference and every reference is cited.'; return; }
+  function renderBanner(issues){ const b=Q('.banner'),o=issues.orphan_citations||[],u=issues.uncited_references||[],dup=issues.duplicates||[]; b.hidden=false;
+    if(!o.length&&!u.length&&!dup.length){ b.className='banner ok'; b.innerHTML='&#10003;&nbsp; Every citation links to a reference, every reference is cited, and no duplicates found.'; return; }
     b.className='banner warn'; const p=[]; if(o.length)p.push(`<span><b>Citations with no matching reference:</b> ${o.join(', ')}</span>`);
-    if(u.length)p.push(`<span><b>References never cited:</b> ${u.join(', ')}</span>`); b.innerHTML=p.join(''); }
+    if(u.length)p.push(`<span><b>References never cited:</b> ${u.join(', ')}</span>`);
+    if(dup.length)p.push(`<span><b>Possible duplicate references:</b> ${dup.map(g=>g.join(' &amp; ')).join('; &nbsp;')}</span>`);
+    b.innerHTML=p.join(''); }
   function renderDoc(blocks){ const doc=Q('.doc'); if(!blocks.length){doc.innerHTML='<div class="empty">No body text found.</div>';return;}
     doc.innerHTML=blocks.map(bl=>{ if(bl.type==='para')return `<p>${bl.html}</p>`; if(bl.type==='legend')return `<p class="legend-para">${bl.html}</p>`;
       if(bl.type==='footnote')return `<p class="footnote-para">${bl.html}</p>`;
@@ -293,11 +298,14 @@ const NUM=(function(){
   function buildMapping(){ const map={}; workingRefs.forEach((r,i)=>{if(r.orig!=null)map[r.orig]=i+1;});
     const present=new Set(workingRefs.filter(r=>r.orig!=null).map(r=>r.orig));
     const deleted=new Set(originalRefs.filter(r=>!present.has(r.orig)).map(r=>r.orig)); return {map,deleted}; }
-  function renderRefs(){ Q('.refs').innerHTML=workingRefs.map((r,i)=>{ const newn=i+1,isNew=r.orig==null,changed=!isNew&&r.orig!==newn;
+  function renderRefs(){ const dupOf={}; ((DATA.issues&&DATA.issues.duplicates)||[]).forEach(g=>g.forEach(x=>{dupOf[x]=g.filter(y=>y!==x);}));
+    Q('.refs').innerHTML=workingRefs.map((r,i)=>{ const newn=i+1,isNew=r.orig==null,changed=!isNew&&r.orig!==newn;
       const badge=isNew?`${newn}`:(changed?`<span class="from">${r.orig}</span>${newn}`:`${newn}`); const uncited=isNew||r.cited===0;
-      return `<div class="ref ${isNew?'isnew':''} ${changed?'changed-row':''} ${uncited?'uncited-now':''}" draggable="true" data-idx="${i}" data-num="${r.orig==null?'':r.orig}">
+      const dup=r.orig!=null&&dupOf[r.orig];
+      const meta=isNew?'<span class="tag-new">new</span> add its citation in Word':(r.cited?('cited '+r.cited+'&times;'):'not cited');
+      return `<div class="ref ${isNew?'isnew':''} ${changed?'changed-row':''} ${uncited?'uncited-now':''} ${dup?'dup':''}" draggable="true" data-idx="${i}" data-num="${r.orig==null?'':r.orig}">
         <span class="grip" title="Drag to reorder">&#9776;</span><span class="badge">${badge}</span>
-        <span style="flex:1"><div class="body">${esc(r.text)}</div><div class="meta">${isNew?'<span class="tag-new">new</span> add its citation in Word':(r.cited?('cited '+r.cited+'&times;'):'not cited')}</div></span>
+        <span style="flex:1"><div class="body">${esc(r.text)}</div><div class="meta">${meta}${dup?` &middot; <span class="dupflag">possible duplicate of ${dup.join(', ')}</span>`:''}</div></span>
         <span class="tools"><button data-up="${i}" title="Move up">&uarr;</button><button data-down="${i}" title="Move down">&darr;</button><button class="x" data-del="${i}" title="Delete">&times;</button></span></div>`;}).join('');
     wire(); updatePreview(); }
   function updatePreview(){ const {map,deleted}=buildMapping();
@@ -362,11 +370,17 @@ const AD=(function(){
   function refLabel(r){ return `${r.surname||'?'} ${(r.years[0]||'')} — ${r.text.slice(0,52)}`; }
   function computeNumbers(){ const numOf={}; let n=0; DATA.tokens.forEach(t=>{const ref=selected[t.key]; if(ref!==''&&ref!=null){if(!(ref in numOf))numOf[ref]=++n;}}); return numOf; }
   function numsForKeys(keys,numOf){ const out=keys.map(k=>{const ref=selected[k]; return (ref!==''&&ref!=null)?numOf[ref]:null;}); return out.every(x=>x!=null)?out:null; }
+  function dupLabels(){ const byId={}; (DATA.references||[]).forEach(r=>byId[r.id]=r);
+    return (DATA.duplicates||[]).map(g=>g.map(id=>{const r=byId[id]; return r?((r.surname||'?')+' '+(r.years[0]||'')):id;}).join(' = ')); }
   function renderChips(){ const numOf=computeNumbers(); let matched=0,unmatched=0;
     DATA.tokens.forEach(t=>{(selected[t.key]!==''&&selected[t.key]!=null)?matched++:unmatched++;}); const review=DATA.tokens.filter(t=>t.status==='review').length;
+    const dups=(DATA.summary.duplicates||0);
     Q('.chips').innerHTML=`<div class="chip"><b>${DATA.summary.citations}</b><span>citations</span></div><div class="chip"><b>${DATA.summary.references}</b><span>references</span></div>
-      <div class="chip matched"><b>${matched}</b><span>matched</span></div><div class="chip review"><b>${review}</b><span>to check</span></div><div class="chip unmatched"><b>${unmatched}</b><span>unmatched</span></div>`;
-    Q('.hintFlag').innerHTML=(review+unmatched)?`<b style="color:var(--warn)">${review+unmatched} highlighted on the right need a look.</b>`:`<b style="color:var(--ok)">All matched — still worth a glance.</b>`; }
+      <div class="chip matched"><b>${matched}</b><span>matched</span></div><div class="chip review"><b>${review}</b><span>to check</span></div><div class="chip unmatched"><b>${unmatched}</b><span>unmatched</span></div>`
+      + (dups?`<div class="chip review"><b>${dups}</b><span>dup. refs</span></div>`:'');
+    const flags=[]; if(review+unmatched) flags.push(`<b style="color:var(--warn)">${review+unmatched} highlighted on the right need a look.</b>`);
+    if(dups) flags.push(`<b style="color:var(--warn)">Possible duplicate references: ${dupLabels().join('; ')}.</b>`);
+    Q('.hintFlag').innerHTML = flags.length? flags.join(' '):`<b style="color:var(--ok)">All matched — still worth a glance.</b>`; }
   function renderDoc(){ const doc=Q('.doc'); if(!DATA.blocks||!DATA.blocks.length){doc.innerHTML='<div class="empty">No body text found.</div>';return;} doc.innerHTML=DATA.blocks.map(b=>`<p>${b.html}</p>`).join(''); }
   function renderList(){ const numOf=computeNumbers(); Q('.mlist').innerHTML=DATA.tokens.map(t=>{ const sel=selected[t.key]; const nums=numsForKeys([t.key],numOf);
       const num=nums?`<sup>${fmt(nums)}</sup>&nbsp;${fmt(nums)}`:'&mdash;'; const label=t.status==='matched'?'matched':t.status==='review'?'check':'unmatched';

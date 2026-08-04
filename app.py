@@ -82,17 +82,20 @@ def ad_dict(document, filename, token):
     refs = ad.parse_references(list(document.paragraphs))
     occ, blocks = ad.scan(document)
     tokens = ad.propose(refs, occ)
+    duplicates = citations.find_duplicate_groups([(r["id"], r["text"]) for r in refs])
     return {
         "token": token, "filename": filename, "blocks": blocks,
         "references": [{"id": r["id"], "surname": r["surname"],
                         "years": sorted(r["years"]), "text": r["text"]} for r in refs],
         "tokens": tokens,
+        "duplicates": duplicates,
         "summary": {
             "citations": sum(t["count"] for t in tokens), "distinct": len(tokens),
             "matched": sum(1 for t in tokens if t["status"] == "matched"),
             "review": sum(1 for t in tokens if t["status"] == "review"),
             "unmatched": sum(1 for t in tokens if t["status"] == "unmatched"),
             "references": len(refs),
+            "duplicates": len(duplicates),
         },
     }
 

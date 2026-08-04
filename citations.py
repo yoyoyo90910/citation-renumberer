@@ -23,6 +23,7 @@ out of scope for a renumbering tool.
 """
 
 import copy
+import difflib
 import html
 import os
 import re
@@ -145,6 +146,69 @@ def _replace_span(paragraph, start, end, new_text):
 
 def _in_range(numbers, max_ref):
     return bool(numbers) and (max_ref == 0 or all(1 <= x <= max_ref for x in numbers))
+
+
+# --------------------------------------------------------------------------
+# Duplicate-reference detection
+# --------------------------------------------------------------------------
+
+_DOI_RE = re.compile(r"10\.\d{4,9}/[^\s\"<>]+")
+
+
+def _dup_norm(text):
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())[:220]
+
+
+def _dup_doi(text):
+    m = _DOI_RE.search(text or "")
+    return m.group(0).lower().rstrip(".,);") if m else None
+
+
+def find_duplicate_groups(items):
+    """Given [(label, text), ...] return groups of labels whose references look
+    like the same source -- same DOI, or highly similar normalised text. Groups
+    of two or more are returned (e.g. [[4, 65]])."""
+    n = len(items)
+    norms = [_dup_norm(t) for _, t in items]
+    dois = [_dup_doi(t) for _, t in items]
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        parent[find(a)] = find(b)
+
+    for i in range(n):
+        a = norms[i]
+        if not a:
+            continue
+        for j in range(i + 1, n):
+            b = norms[j]
+            if not b:
+                continue
+            same = False
+            if a == b:
+                same = True
+            elif dois[i] and dois[i] == dois[j]:
+                same = True
+            else:
+                la, lb = len(a), len(b)
+                if min(la, lb) >= 24 and abs(la - lb) <= 0.35 * max(la, lb):
+                    sm = difflib.SequenceMatcher(None, a, b)
+                    if sm.quick_ratio() >= 0.86 and sm.ratio() >= 0.90:
+                        same = True
+            if same:
+                union(i, j)
+
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(items[i][0])
+    return sorted(([sorted(g) for g in groups.values() if len(g) > 1]),
+                  key=lambda g: g[0])
 
 
 # --------------------------------------------------------------------------
@@ -527,6 +591,7 @@ def analyze(path, filename=None, style=None):
     analysis.issues = {
         "orphan_citations": sorted(n for n in all_cited if n not in ref_numbers),
         "uncited_references": [r["number"] for r in analysis.references if not r["cited_by"]],
+        "duplicates": find_duplicate_groups([(r["number"], r["text"]) for r in analysis.references]),
     }
     return analysis
 
