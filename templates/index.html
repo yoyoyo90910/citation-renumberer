@@ -40,7 +40,10 @@
           background:var(--bg); border:1px solid var(--line); border-radius:20px; padding:5px 12px; max-width:280px; margin-left:auto; }
   .file .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); flex:none; }
   .file span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .actions { display:flex; gap:8px; }
+  .actions { display:flex; gap:8px; align-items:center; }
+  .metatoggle { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); cursor:pointer;
+                border:1px solid var(--line); background:var(--bg); border-radius:9px; padding:7px 11px; white-space:nowrap; }
+  .metatoggle input { accent-color:var(--accent); cursor:pointer; margin:0; }
 
   button, label.btn { font:inherit; font-size:13.5px; cursor:pointer; border:1px solid var(--line-2);
           background:var(--panel); border-radius:9px; padding:8px 14px; color:var(--ink);
@@ -174,6 +177,9 @@
   </div>
   <span class="file"><span class="dot"></span><span id="filename">&mdash;</span></span>
   <div class="actions">
+    <label class="metatoggle" title="Also scan the title / author / metadata section above the abstract. Off by default so author-affiliation numbers aren't mistaken for citations.">
+      <input type="checkbox" id="metaToggle"> Include metadata
+    </label>
     <label class="btn btn-primary">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
       Import .docx<input type="file" id="fileInput" accept=".docx" hidden></label>
@@ -343,7 +349,7 @@ const NUM=(function(){
     QA('.cite').forEach(c=>c.onclick=()=>{ const nums=(c.dataset.orig||'').split(',').filter(Boolean); clearHot(); c.classList.add('hot'); let first=null;
       nums.forEach(n=>{const ref=[...QA('.ref')].find(r=>r.dataset.num===n); if(ref){ref.classList.add('hot');first=first||ref;}}); if(first)first.scrollIntoView({behavior:'smooth',block:'center'}); }); }
   function exportDoc(){ const order=workingRefs.map(r=>r.orig!=null?{orig:r.orig}:{orig:null,text:r.text}); Q('.status').textContent='Exporting…';
-    fetch('/api/num/renumber',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order,token:DATA.token,filename:DATA.filename,style:DATA.style})})
+    fetch('/api/num/renumber',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order,token:DATA.token,filename:DATA.filename,style:DATA.style,metadata:shell.includeMetadata})})
       .then(r=>r.json()).then(d=>{ if(d.error){Q('.status').textContent='Error: '+d.error;toast(d.error);return;} window.location=d.download;
         Q('.status').textContent=`Exported ✓ (${d.change_log.length} numbers changed)`; toast('Renumbered .docx downloaded'+(d.warnings&&d.warnings.length?' — check the change log notes':'')); }).catch(()=>Q('.status').textContent='Export failed'); }
   function syncStyle(data){ const sel=Q('.styleSelect'),note=Q('.style-note'),c=data.style_counts||{};
@@ -354,7 +360,8 @@ const NUM=(function(){
     setFilename(data.filename); renderCounts(data.counts); renderBanner(data.issues); renderDoc(data.blocks); syncStyle(data);
     originalRefs=data.references.map(r=>({orig:r.number,text:r.text,cited:r.cited_by.length})); workingRefs=originalRefs.map(r=>({...r})); renderRefs(); }
   function fetchAnalysis(token,filename,style){ let u=`/api/num/analysis?token=${encodeURIComponent(token)}`;
-    if(filename)u+='&filename='+encodeURIComponent(filename); if(style)u+='&style='+style; return fetch(u).then(r=>r.json()); }
+    if(filename)u+='&filename='+encodeURIComponent(filename); if(style)u+='&style='+style;
+    if(shell.includeMetadata)u+='&metadata=1'; return fetch(u).then(r=>r.json()); }
   function analyze(token,filename){ MANUAL=false; Q('.doc').innerHTML='<div class="empty">Analysing…</div>'; fetchAnalysis(token,filename).then(render); }
   function restyle(style){ MANUAL=true; pending=style; Q('.doc').innerHTML='<div class="empty">Re-reading…</div>';
     fetchAnalysis(DATA.token,DATA.filename,style).then(d=>{ if(pending!==style)return; render(d); toast('Reading as '+LABEL[style]); }); }
@@ -399,21 +406,22 @@ const AD=(function(){
     setFilename(data.filename); data.tokens.forEach(t=>{selected[t.key]=(t.default==null?'':String(t.default));}); renderDoc(); refresh(); Q('.result').innerHTML='';
     QA('.cite').forEach(c=>c.addEventListener('click',()=>{const k=(c.dataset.keys||'').split(',').filter(Boolean)[0]; if(k)spotlight(k);})); }
   function convert(){ const mapping={}; DATA.tokens.forEach(t=>{mapping[t.key]=selected[t.key]===''?null:selected[t.key];}); Q('.status').textContent='Converting…';
-    fetch('/api/ad/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:DATA.token,filename:DATA.filename,mapping})})
+    fetch('/api/ad/convert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:DATA.token,filename:DATA.filename,mapping,metadata:shell.includeMetadata})})
       .then(r=>r.json()).then(d=>{ if(d.error){Q('.status').textContent='Error: '+d.error;toast(d.error);return;} window.location=d.download; Q('.status').textContent='Exported ✓';
         const warns=(d.warnings||[]).map(w=>`<div class="w">! ${esc(w)}</div>`).join('');
         Q('.result').innerHTML=`<div class="card"><h2>Converted &check;</h2><div class="clog"><b>${d.converted}</b> citation(s) converted, <b>${d.left}</b> left unchanged. New numbered reference list:
           <div style="margin-top:8px" class="refline">${d.numbered_refs.map(([n,t])=>`${n}. ${esc(t)}`).join('<br>')}</div>${warns?('<div style="margin-top:12px">'+warns+'</div>'):''}</div></div>`;
         toast('Numbered .docx downloaded'); }).catch(()=>Q('.status').textContent='Conversion failed'); }
   function analyze(token,filename){ Q('.doc').innerHTML='<div class="empty">Analysing…</div>'; let u=`/api/ad/analysis?token=${encodeURIComponent(token)}`; if(filename)u+='&filename='+encodeURIComponent(filename);
-    fetch(u).then(r=>r.json()).then(render); }
+    if(shell.includeMetadata)u+='&metadata=1'; fetch(u).then(r=>r.json()).then(render); }
   Q('.convertBtn').onclick=convert;
   return {analyze};
 })();
 
 /* ===================== SHELL ===================== */
-const shell={mode:'num', token:'sample', filename:null};
+const shell={mode:'num', token:'sample', filename:null, includeMetadata:false};
 function activate(){ (shell.mode==='num'?NUM:AD).analyze(shell.token, shell.filename); }
+byId('metaToggle').addEventListener('change',e=>{ shell.includeMetadata=e.target.checked; activate(); });
 document.querySelectorAll('.segwrap button').forEach(b=>b.onclick=()=>{
   shell.mode=b.dataset.mode;
   document.querySelectorAll('.segwrap button').forEach(x=>x.classList.toggle('on',x===b));

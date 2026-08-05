@@ -137,12 +137,12 @@ def _pieces_for(group_text, preceding_text):
     return pieces
 
 
-def scan(document):
+def scan(document, include_metadata=False):
     """Return (occurrences, blocks). blocks render the article body with every
     citation wrapped in a span carrying its piece keys -- for the live preview."""
     paragraphs = list(document.paragraphs)
     body_start = _find_body_start(paragraphs)
-    started = body_start is None
+    started = include_metadata or body_start is None
     occ, blocks = [], []
     for p in paragraphs:
         if not started:
@@ -174,8 +174,8 @@ def scan(document):
     return occ, blocks
 
 
-def detect_citations(document):
-    return scan(document)[0]
+def detect_citations(document, include_metadata=False):
+    return scan(document, include_metadata)[0]
 
 
 # --------------------------------------------------------------------------

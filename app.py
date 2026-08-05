@@ -60,6 +60,10 @@ def _safe_style(v):
     return v if v in citations.STYLES else None
 
 
+def _truthy(v):
+    return str(v).lower() in ("1", "true", "yes", "on")
+
+
 # --------------------------------------------------------------------------
 # Serialisers
 # --------------------------------------------------------------------------
@@ -78,9 +82,9 @@ def num_dict(a, token):
     }
 
 
-def ad_dict(document, filename, token):
+def ad_dict(document, filename, token, include_metadata=False):
     refs = ad.parse_references(list(document.paragraphs))
-    occ, blocks = ad.scan(document)
+    occ, blocks = ad.scan(document, include_metadata=include_metadata)
     tokens = ad.propose(refs, occ)
     duplicates = citations.find_duplicate_groups([(r["id"], r["text"]) for r in refs])
     return {
@@ -142,7 +146,8 @@ def num_analysis():
     name = request.args.get("filename") or ("sample-article.docx (demo)"
                                             if token == "sample" else "document.docx")
     try:
-        a = citations.analyze(src, name, style=_safe_style(request.args.get("style")))
+        a = citations.analyze(src, name, style=_safe_style(request.args.get("style")),
+                              include_metadata=_truthy(request.args.get("metadata")))
     except Exception as exc:
         return jsonify({"error": "Could not read that document: %s" % exc}), 400
     return jsonify(num_dict(a, token))
@@ -159,7 +164,8 @@ def num_renumber():
     out_name = _safe_base(p.get("filename")) + "__renumbered.docx"
     try:
         rep = citations.apply_renumber(src, p["order"], os.path.join(EXPORT_DIR, out_name),
-                                       style=_safe_style(p.get("style")))
+                                       style=_safe_style(p.get("style")),
+                                       include_metadata=_truthy(p.get("metadata")))
     except Exception as exc:
         return jsonify({"error": "Renumber failed: %s" % exc}), 400
     return jsonify({"ok": True, "download": "/download/" + out_name,
@@ -178,7 +184,8 @@ def ad_analysis():
     name = request.args.get("filename") or ("sample-authordate.docx (demo)"
                                             if token == "sample" else "document.docx")
     try:
-        return jsonify(ad_dict(docx.Document(src), name, token))
+        return jsonify(ad_dict(docx.Document(src), name, token,
+                               include_metadata=_truthy(request.args.get("metadata"))))
     except Exception as exc:
         return jsonify({"error": "Could not read that document: %s" % exc}), 400
 
@@ -193,7 +200,7 @@ def ad_convert():
                for k, v in (p.get("mapping") or {}).items()}
     document = docx.Document(src)
     refs = ad.parse_references(list(document.paragraphs))
-    occ = ad.detect_citations(document)
+    occ = ad.detect_citations(document, include_metadata=_truthy(p.get("metadata")))
     try:
         rep = ad.apply_with_mapping(document, refs, occ, mapping)
     except Exception as exc:

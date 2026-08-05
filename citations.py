@@ -517,7 +517,7 @@ def _footnote_block(fn, analysis):
 # analyze()
 # --------------------------------------------------------------------------
 
-def analyze(path, filename=None, style=None):
+def analyze(path, filename=None, style=None, include_metadata=False):
     document = docx.Document(path)
     analysis = Analysis(filename or os.path.basename(path), path)
     analysis.document = document
@@ -530,7 +530,7 @@ def analyze(path, filename=None, style=None):
     para_map = {p._element: p for p in document.paragraphs}
     table_map = {t._element: t for t in document.tables}
     body_start_el = _find_body_start(paragraphs)
-    started = body_start_el is None
+    started = include_metadata or body_start_el is None
     in_refs = False
 
     units = []
@@ -633,8 +633,8 @@ def _set_ref_number(paragraph, new_num):
         _replace_span(paragraph, m.start(1), m.end(1), str(new_num))
 
 
-def apply_renumber(source_path, order, out_path, style=None):
-    analysis = analyze(source_path, style=style)
+def apply_renumber(source_path, order, out_path, style=None, include_metadata=False):
+    analysis = analyze(source_path, style=style, include_metadata=include_metadata)
     style = analysis.style
     document = analysis.document
 
